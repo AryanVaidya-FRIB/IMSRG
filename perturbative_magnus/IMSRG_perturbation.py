@@ -18,7 +18,9 @@
 import numpy as np
 from numpy import array, dot, diag, reshape, pi
 from scipy.linalg import eigvalsh, expm
+from scipy.special import bernoulli
 from commutators import commutator_2b, similarity_transform
+from generators import eta_white
 from basis import *
 from classification import *
 
@@ -82,38 +84,6 @@ def normal_order(H1B, H2B, user_data):
   return E, f, Gamma
 
 #-----------------------------------------------------------------------------------
-# Calculations for Delta and Omega Operators
-#-----------------------------------------------------------------------------------
-def calc_Delta(f, Gamma, user_data):
-    dim1B     = user_data["dim1B"]
-    particles = user_data["particles"]
-    holes     = user_data["holes"]
-    idx2B     = user_data["idx2B"]
-
-    # Loop through used values
-    Delta1B = np.zeros_like(f)
-    Delta2B = np.zeros_like(Gamma)
-    for a in particles:
-        for i in holes:
-            Delta1B[a,i] = f[a,a] - f[i,i] + Gamma[idx2B[(a,i)], idx2B[(a,i)]]
-
-    for a in particles:
-        for b in particles:
-            for i in holes:
-                for j in holes:
-                    Delta2B[idx2B[(a,b)],idx2B[(i,j)]] = ( 
-                        f[a,a] + f[b,b] - f[i,i] - f[j,j]  
-                        + Gamma[idx2B[(a,b)],idx2B[(a,b)]] 
-                        + Gamma[idx2B[(i,j)],idx2B[(i,j)]]
-                        - Gamma[idx2B[(a,i)],idx2B[(a,i)]] 
-                        - Gamma[idx2B[(a,j)],idx2B[(a,j)]] 
-                        - Gamma[idx2B[(b,i)],idx2B[(b,i)]] 
-                        - Gamma[idx2B[(b,j)],idx2B[(b,j)]] 
-                    )
-
-    return Delta1B, Delta2B
-
-#-----------------------------------------------------------------------------------
 # Main Program
 #-----------------------------------------------------------------------------------
 def main():
@@ -175,7 +145,46 @@ def main():
   # set up initial Hamiltonian
   H1B, H2B = pairing_hamiltonian(delta, g, user_data)
 
-  E, f, Gamma = normal_order(H1B, H2B, user_data) 
+  E, f, Gamma  = normal_order(H1B, H2B, user_data) 
+
+  # Calculate starting metrics
+  DE2          = calc_mbpt2(f, Gamma, user_data)
+  DE3          = calc_mbpt3(f, Gamma, user_data)
+  norm_fod     = calc_fod_norm(f, user_data)
+  norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
+  
   user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
-  max_steps = 1000
+  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
+    "step No", "E" , "DE(2)", "DE(3)", "E+DE", "||Omega||", "||fod||", "||Gammaod||"))
+  print("-" * 148)
+
+  print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+      0, E , DE2, DE3, E+DE2+DE3, 0, norm_fod, norm_Gammaod))
+
+  max_steps = 10
+  for s in range(1, max_steps):
+    # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = eta_W(0)
+    Omega1B, Omega2B = eta_white(f, Gamma, user_data)
+
+    # Use Magnus evolution to obtain new E, f, Gamma
+    E, f, Gamma = similarity_transform(Omega1B, Omega2B, E, f, Gamma, user_data)
+
+    # Calculate new metrics
+    OmegaNorm    = np.linalg.norm(Omega1B,ord='fro')+np.linalg.norm(Omega2B,ord='fro')
+    DE2          = calc_mbpt2(f, Gamma, user_data)
+    DE3          = calc_mbpt3(f, Gamma, user_data)
+    norm_fod     = calc_fod_norm(f, user_data)
+    norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
+
+    # Print new metrics
+    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+      s, E , DE2, DE3, E+DE2+DE3, OmegaNorm, norm_fod, norm_Gammaod))
+
+
+#------------------------------------------------------------------------------
+# make executable
+#------------------------------------------------------------------------------
+if __name__ == "__main__": 
+  main()
+

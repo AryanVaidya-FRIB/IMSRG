@@ -190,9 +190,9 @@ def similarity_transform(Operator1B, Operator2B, E, f, Gamma, user_data):
       temp_f = f
       temp_Gamma = Gamma
       for _ in range(k):
-        temp_E, temp_f, temp_Gamma = flow_imsrg2(Operator1B, Operator2B, temp_f, temp_Gamma, user_data)
-        
-      if abs(temp_E/factorial(k)) < 1E-8 and k > 6: 
+        temp_E, temp_f, temp_Gamma = commutator_2b(Operator1B, Operator2B, temp_f, temp_Gamma, user_data)
+
+      if abs(temp_E/factorial(k)) < 1E-10 and k > 6: 
         break
       E_s += temp_E/factorial(k)
       f_s += temp_f/factorial(k)
