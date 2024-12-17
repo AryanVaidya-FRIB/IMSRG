@@ -25,7 +25,7 @@ def calc_fod_norm(f, user_data):
   norm = 0.0
   for a in particles:
     for i in holes:
-      norm += f[a,i]**2 + f[i,a]**2
+      norm += 2*(f[a,i]**2)
 
   return np.sqrt(norm)
 
@@ -39,7 +39,7 @@ def calc_Gammaod_norm(Gamma, user_data):
     for b in particles:
       for i in holes:
         for j in holes:
-          norm += Gamma[idx2B[(a,b)],idx2B[(i,j)]]**2 + Gamma[idx2B[(i,j)],idx2B[(a,b)]]**2
+          norm += 2*(Gamma[idx2B[(a,b)],idx2B[(i,j)]]**2)
 
   return np.sqrt(norm)
 

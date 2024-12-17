@@ -19,7 +19,7 @@ import numpy as np
 from numpy import array, dot, diag, reshape, pi
 from scipy.linalg import eigvalsh, expm
 from scipy.special import bernoulli
-from commutators import commutator_2b, similarity_transform
+from commutators import commutator_2b, similarity_transform, BCH
 from generators import eta_white
 from basis import *
 from classification import *
@@ -29,7 +29,7 @@ from sys import argv
 #-----------------------------------------------------------------------------------
 # normal-ordered pairing Hamiltonian
 #-----------------------------------------------------------------------------------
-def pairing_hamiltonian(delta, g, user_data):
+def pairing_hamiltonian(delta, g, b, user_data):
   bas1B = user_data["bas1B"]
   bas2B = user_data["bas2B"]
   idx2B = user_data["idx2B"]
@@ -52,6 +52,20 @@ def pairing_hamiltonian(delta, g, user_data):
           H2B[idx2B[(j,i)],idx2B[(k,l)]] = 0.5*g
           H2B[idx2B[(i,j)],idx2B[(l,k)]] = 0.5*g
           H2B[idx2B[(j,i)],idx2B[(l,k)]] = -0.5*g
+
+  # pair-breaking contributions
+  for (i, j) in bas2B:
+    if (i % 2 == 0 and j % 2 == 1 and j != i+1):
+      for (k, l) in bas2B:
+        if (k % 2 == 0 and l == k+1):
+          H2B[idx2B[(i,j)],idx2B[(k,l)]] = -0.5*b
+          H2B[idx2B[(j,i)],idx2B[(k,l)]] = 0.5*b
+          H2B[idx2B[(i,j)],idx2B[(l,k)]] = 0.5*b
+          H2B[idx2B[(j,i)],idx2B[(l,k)]] = -0.5*b
+          H2B[idx2B[(k,l)],idx2B[(i,j)]] = -0.5*b
+          H2B[idx2B[(k,l)],idx2B[(j,i)]] = 0.5*b
+          H2B[idx2B[(l,k)],idx2B[(i,j)]] = 0.5*b
+          H2B[idx2B[(l,k)],idx2B[(j,i)]] = -0.5*b
   
   return H1B, H2B
   
@@ -83,6 +97,20 @@ def normal_order(H1B, H2B, user_data):
 
   return E, f, Gamma
 
+def get_operator_from_y(y, dim1B, dim2B):
+  
+  # reshape the solution vector into 0B, 1B, 2B pieces
+  ptr = 0
+  zero_body = y[ptr]
+
+  ptr += 1
+  one_body = reshape(y[ptr:ptr+dim1B*dim1B], (dim1B, dim1B))
+
+  ptr += dim1B*dim1B
+  two_body = reshape(y[ptr:ptr+dim2B*dim2B], (dim2B, dim2B))
+
+  return zero_body,one_body,two_body
+
 #-----------------------------------------------------------------------------------
 # Main Program
 #-----------------------------------------------------------------------------------
@@ -90,6 +118,7 @@ def main():
   # grab delta and g from the command line
   delta      = float(argv[1])
   g          = float(argv[2])
+  b          = float(argv[3])
 
   particles  = 4
 
@@ -143,9 +172,12 @@ def main():
   user_data["bernoulli"] = bernoulli(user_data["order"])
 
   # set up initial Hamiltonian
-  H1B, H2B = pairing_hamiltonian(delta, g, user_data)
+  H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
 
   E, f, Gamma  = normal_order(H1B, H2B, user_data) 
+  E_i = E
+  f_i = f
+  Gamma_i = Gamma
 
   # Calculate starting metrics
   DE2          = calc_mbpt2(f, Gamma, user_data)
@@ -162,10 +194,13 @@ def main():
   print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
       0, E , DE2, DE3, E+DE2+DE3, 0, norm_fod, norm_Gammaod))
 
-  max_steps = 10
+  max_steps = 5
+  FinalOmega1B = np.zeros_like(f)
+  FinalOmega2B = np.zeros_like(Gamma)
   for s in range(1, max_steps):
     # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = eta_W(0)
     Omega1B, Omega2B = eta_white(f, Gamma, user_data)
+    FinalOmega1B, FinalOmega2B = BCH(Omega1B, Omega2B, FinalOmega1B, FinalOmega2B, user_data)
 
     # Use Magnus evolution to obtain new E, f, Gamma
     E, f, Gamma = similarity_transform(Omega1B, Omega2B, E, f, Gamma, user_data)
@@ -180,6 +215,9 @@ def main():
     # Print new metrics
     print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
       s, E , DE2, DE3, E+DE2+DE3, OmegaNorm, norm_fod, norm_Gammaod))
+
+  E_s, f_s, Gamma_s = similarity_transform(FinalOmega1B, FinalOmega2B, E_i, f_i, Gamma_i, user_data)
+  print(f"Final GSE: {E_s}")
 
 
 #------------------------------------------------------------------------------

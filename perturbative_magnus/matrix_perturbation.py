@@ -33,7 +33,7 @@ def Hamiltonian(delta,g):
         [[2*delta-g,    -0.5*g,     -0.5*g,     -0.5*g,    -0.5*g,          0.],
          [   -0.5*g, 4*delta-g,     -0.5*g,     -0.5*g,        0.,     -0.5*g ],
          [   -0.5*g,    -0.5*g,  6*delta-g,         0.,    -0.5*g,     -0.5*g ],
-         [   -0.5*g,    -0.5*g,         0.,  1*6*delta-g,    -0.5*g,     -0.5*g ],
+         [   -0.5*g,    -0.5*g,         0.,  6*delta-g,    -0.5*g,     -0.5*g ],
          [   -0.5*g,        0.,     -0.5*g,     -0.5*g, 8*delta-g,     -0.5*g ],
          [       0.,    -0.5*g,     -0.5*g,     -0.5*g,    -0.5*g, 10*delta-g ]]
       )
@@ -52,30 +52,21 @@ def compute_Delta(H):
     Delta = np.zeros((dim, dim))
     
     # Calculate Delta by combining H1B and H2B pieces
-    for a in range(dim):
-        for b in range(dim):
-            if a == b:
-                # For diagonal elements
-                Delta[a][a] = 2*H[a][a] - H[0][0]  # Assuming H[0, 0] as the 0-body term
-            
-            if a != b:
-                # Delta2B for the off-diagonal elements
-                Delta[a][b] = H[a][a] + H[b][b] - H[0][0] - H[1][1]  # Subtract off-diagonals from diagonals
-                Delta[a][b] += H[a][b]  # Add the Gamma off-diagonal back
+    for i in range(dim):
+        for j in range(dim):
+            if i != j:
+                Delta[i,j] = H[i,i]-H[j,j]
+
+    Delta[Delta == 0] = 1e-12     
     
     return Delta
 
 def compute_Omega(H, Delta):
     # Compute first order Omega = Hod/Delta. If Delta is too small, replace value with given value from arctan version
-    Hod = H-diag(H)   
-    sign_Hod = np.sign(Hod)
-    sign_Delta = np.sign(Delta)
-    
-    # Safe division with a mask for zero denominators
-    with np.errstate(divide='ignore', invalid='ignore'):  # Suppress warnings for zero division
-        Omega = np.divide(Hod, Delta)
-        Omega[Delta == 0] = (pi / 4) * sign_Hod[Delta == 0] * sign_Delta[Delta == 0]
-    # print(Omega)
+    dim = H.shape[0]
+    Hod = H-diag(diag(H))  
+    Omega = Hod/Delta
+                
     return Omega
 
 #------------------------------------------------------------------------------
@@ -87,7 +78,7 @@ def compute_odNorm(H):
     return np.linalg.norm(Hod)
 
 def compute_E(H):
-    return H[0][0] # Assumes the first slot of the Hamiltonian contains ground state energy
+    return H[0,0]# Assumes the first slot of the Hamiltonian contains ground state energy
 
 
 #------------------------------------------------------------------------------
@@ -107,7 +98,7 @@ def main():
     print(eigenvalues)
 
     # initialize number of perturbative steps
-    max_step = 3
+    max_step = 10
 
     # initalize solution storage vectors
     Hs = [H0]
@@ -126,7 +117,7 @@ def main():
         Omega = compute_Omega(H0, Delta)
         Omega_norm = np.linalg.norm(Omega)
 
-        H0 = matrix_similarity_transform(Omega, H0, 20)
+        H0 = expm(Omega)*H0*expm(-1*Omega)
         # print(H0)
 
         Hod_norm = compute_odNorm(H0)

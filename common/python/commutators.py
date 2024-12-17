@@ -51,13 +51,13 @@ def commutator_2b(A_1, A_2, B_1, B_2, user_data):
 
   for i in holes:
     for a in particles:
-      C_0 += A_1[i,a] * B_1[a,i] - A_1[a,i] * B_1[i,a]
+      C_0 += 2*A_1[i,a] * B_1[a,i] 
 
   for i in holes:
-    for j in holes:
+    for j in holes[0:i+1]:
       for a in particles:
-        for b in particles:
-          C_0 += 0.5 * A_2[idx2B[(i,j)], idx2B[(a,b)]] * B_2[idx2B[(a,b)], idx2B[(i,j)]]
+        for b in particles[0:a+1]:
+          C_0 += A_2[idx2B[(i,j)], idx2B[(a,b)]] * B_2[idx2B[(a,b)], idx2B[(i,j)]]
 
 
   #############################        
@@ -73,10 +73,8 @@ def commutator_2b(A_1, A_2, B_1, B_2, user_data):
       for i in holes:
         for a in particles:
           C_1[p,q] += (
-            A_1[i,a] * B_2[idx2B[(a, p)], idx2B[(i, q)]] 
-            - A_1[a,i] * B_2[idx2B[(i, p)], idx2B[(a, q)]] 
-            - B_1[i,a] * A_2[idx2B[(a, p)], idx2B[(i, q)]] 
-            + B_1[a,i] * A_2[idx2B[(i, p)], idx2B[(a, q)]]
+            2*A_1[i,a] * B_2[idx2B[(a, p)], idx2B[(i, q)]] 
+            - 2* B_1[i,a] * A_2[idx2B[(a, p)], idx2B[(i, q)]] 
           )
 
   # 2B - 2B
@@ -167,16 +165,50 @@ def matrix_similarity_transform(Operator, Hamiltonian, order):
   for k in range(order):
     temp_H = Hamiltonian
     for _ in range(k):
-      temp_H = commutator(Operator, Hamiltonian)
+      temp_H = commutator(Operator, temp_H)
     
-    if abs(temp_H[0][0]/factorial(k))< 1e-8 and k>6:
+    if abs(np.linalg.norm(temp_H)/factorial(k))< 1e-10 and k>6:
       break
-    Hout += temp_H
+    Hout += temp_H/factorial(k)
+    print(Hout)
 
   return Hout
 
 # -----------------------------------------------------------------------------
-# BCH for IMSRG Transformations truncated at 2-body contributions
+# BCH for two operators truncated to 2-body contributions
+# with form exp(OperatorA) exp(OperatorB)
+# -----------------------------------------------------------------------------
+def BCH(OperatorA_1B, OperatorA_2B, OperatorB_1B, OperatorB_2B, user_data):
+    output_1B = OperatorA_1B + OperatorB_1B
+    output_2B = OperatorA_2B + OperatorB_2B
+
+    # 1st order terms
+    _, comm1B, comm2B = commutator_2b(OperatorA_1B, OperatorA_2B, OperatorB_1B, OperatorB_2B, user_data)
+    output_1B += comm1B/2
+    output_2B += comm2B/2
+
+    # 2nd order terms
+    _, comm1B_A, comm2B_A = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B, comm2B, user_data)
+    _, comm1B_B, comm2B_B = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B, comm2B, user_data)
+    output_1B += (comm1B_A-comm1B_B)/12
+    output_2B += (comm2B_A-comm2B_B)/12
+
+    # 3rd order terms
+    _, comm1B_AA, comm2B_AA = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_A, comm2B_A, user_data)
+    _, comm1B_BB, comm2B_BB = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B_B, comm2B_B, user_data)
+    output_1B += (comm1B_AA - comm1B_BB) / 24
+    output_2B += (comm2B_AA - comm2B_BB) / 24
+
+    # 4th order terms
+    _, comm1B_AAA, comm2B_AAA = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_AA, comm2B_AA, user_data)
+    _, comm1B_BBB, comm2B_BBB = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B_BB, comm2B_BB, user_data)
+    output_1B += (comm1B_AAA - comm1B_BBB) / 120
+    output_2B += (comm2B_AAA - comm2B_BBB) / 120
+
+    return output_1B, output_2B
+
+# -----------------------------------------------------------------------------
+# BCH Transformation for IMSRG Transformations truncated at 2-body contributions
 # with form exp(Operator)Hamiltonian exp(-Operator)
 # -----------------------------------------------------------------------------
 def similarity_transform(Operator1B, Operator2B, E, f, Gamma, user_data):
