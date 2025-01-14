@@ -16,6 +16,7 @@
 #------------------------------------------------------------------------------
 
 import numpy as np
+import pandas as pd
 from numpy import array, dot, diag, reshape, transpose
 from scipy.linalg import eigvalsh
 from scipy.integrate import odeint, ode
@@ -26,6 +27,8 @@ from generators import *
 from commutators import *
 
 from sys import argv
+import time
+import tracemalloc
 
 #-----------------------------------------------------------------------------------
 # derivative wrapper
@@ -163,12 +166,19 @@ def normal_order(H1B, H2B, user_data):
 #------------------------------------------------------------------------------
 
 def main():
-  # grab delta and g from the command line
-  delta      = float(argv[1])
-  g          = float(argv[2])
-  b          = float(argv[3])
+  # grab delta and g from the command line - edited for loop compatibility
+  delta      = 1.0 #float(argv[1])
+#  g          = float(argv[2])
+  b          = 0.0 #float(argv[3])
 
   particles  = 4
+
+  # Construct output arrays
+  glist = []
+  final_E = []
+  final_step = []
+  total_time = []
+  total_RAM = []
 
   # setup shared data
   dim1B     = 8
@@ -226,54 +236,87 @@ def main():
     "calc_eta":   eta_white,          # specify the generator (function object)
     "calc_rhs":   commutator_2b         # specify the right-hand side and truncation
   }
+  # Loop through a set of g values to calculate usage and timing of each
+  for i in range(-13, 13):
+    # Initialize value of g
+    g = i/10
 
-  # set up initial Hamiltonian
-  H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
+    # Define starting RAM use
+    tracemalloc.start()
 
-  E, f, Gamma = normal_order(H1B, H2B, user_data) 
+    # Start the clock
+    time_start = time.perf_counter()
 
-  # reshape Hamiltonian into a linear array (initial ODE vector)
-  y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
+    # set up initial Hamiltonian
+    H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
 
-  # integrate flow equations 
-  solver = ode(derivative_wrapper,jac=None)
-  solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
-  solver.set_f_params(user_data)
-  solver.set_initial_value(y0, 0.)
+    E, f, Gamma = normal_order(H1B, H2B, user_data) 
 
-  sfinal = 50
-  ds = 0.1
+    # reshape Hamiltonian into a linear array (initial ODE vector)
+    y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
-  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
-    "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-    "||eta||", "||fod||", "||Gammaod||"))
-  # print "-----------------------------------------------------------------------------------------------------------------"
-  print("-" * 148)
+    # integrate flow equations 
+    solver = ode(derivative_wrapper,jac=None)
+    solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
+    solver.set_f_params(user_data)
+    solver.set_initial_value(y0, 0.)
+
+    sfinal = 50
+    ds = 0.1
+
+    print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
+      "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
+      "||eta||", "||fod||", "||Gammaod||"))
+    # print "-----------------------------------------------------------------------------------------------------------------"
+    print("-" * 148)
+    
+    eta_norm0 = 1.0e10
+    failed = False
+
+    while solver.successful() and solver.t < sfinal:
+      ys = solver.integrate(sfinal, step=True)
+    
+      if user_data["eta_norm"] > 1.25*eta_norm0: 
+        failed=True
+        break
+    
+      dim2B = dim1B*dim1B
+      E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
+
+      DE2 = calc_mbpt2(f, Gamma, user_data)
+      DE3 = calc_mbpt3(f, Gamma, user_data)
+
+      norm_fod     = calc_fod_norm(f, user_data)
+      norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
+
+      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+        solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
+      if abs(DE2/E) < 10e-8: break
+
+      eta_norm0 = user_data["eta_norm"]
+      
+    # Get g-value diagnostics
+    current_time = time.perf_counter()-time_start
+    memkb_current, memkb_peak = tracemalloc.get_traced_memory()
+    memkb_peak = memkb_peak/1024.
+
+    glist.append(g)
+    final_E.append(E)
+    final_step.append(solver.t)
+    total_time.append(current_time)
+    total_RAM.append(memkb_peak)
+    print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
+    tracemalloc.stop()
+
+  output = pd.DataFrame({
+    'g':           glist,
+    'Ref Energy':  final_E,
+    'Total Steps': final_step,
+    'Total Time':  total_time,
+    'RAM Usage':   total_RAM
+  })
   
-  eta_norm0 = 1.0e10
-  failed = False
-
-  while solver.successful() and solver.t < sfinal:
-    ys = solver.integrate(sfinal, step=True)
-   
-    if user_data["eta_norm"] > 1.25*eta_norm0: 
-      failed=True
-      break
-   
-    dim2B = dim1B*dim1B
-    E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
-
-    DE2 = calc_mbpt2(f, Gamma, user_data)
-    DE3 = calc_mbpt3(f, Gamma, user_data)
-
-    norm_fod     = calc_fod_norm(f, user_data)
-    norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
-
-    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
-    if abs(DE2/E) < 10e-8: break
-
-    eta_norm0 = user_data["eta_norm"]
+  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_ev1.csv')
 
 #    solver.integrate(solver.t + ds)
 

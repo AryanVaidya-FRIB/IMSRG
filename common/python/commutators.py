@@ -183,27 +183,45 @@ def BCH(OperatorA_1B, OperatorA_2B, OperatorB_1B, OperatorB_2B, user_data):
     output_2B = OperatorA_2B + OperatorB_2B
 
     # 1st order terms
-    _, comm1B, comm2B = commutator_2b(OperatorA_1B, OperatorA_2B, OperatorB_1B, OperatorB_2B, user_data)
+    _, comm1B, comm2B = commutator_2b(OperatorA_1B, OperatorA_2B, OperatorB_1B, OperatorB_2B, user_data) #[X,Y]
     output_1B += comm1B/2
     output_2B += comm2B/2
 
     # 2nd order terms
-    _, comm1B_A, comm2B_A = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B, comm2B, user_data)
-    _, comm1B_B, comm2B_B = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B, comm2B, user_data)
+    _, comm1B_A, comm2B_A = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B, comm2B, user_data) #[X,[X,Y]]
+    _, comm1B_B, comm2B_B = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B, comm2B, user_data) #[Y,[X,Y]]
     output_1B += (comm1B_A-comm1B_B)/12
     output_2B += (comm2B_A-comm2B_B)/12
 
-    # 3rd order terms
-    _, comm1B_AA, comm2B_AA = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_A, comm2B_A, user_data)
-    _, comm1B_BB, comm2B_BB = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B_B, comm2B_B, user_data)
-    output_1B += (comm1B_AA - comm1B_BB) / 24
-    output_2B += (comm2B_AA - comm2B_BB) / 24
+    # 3rd order term
+    _, comm1B_AA, comm2B_AA = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_A, comm2B_A, user_data) #[X,[X,[X,Y]]]
+    _, comm1B_BB, comm2B_BB = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B_B, comm2B_B, user_data) #[Y,[Y,[X,Y]]]
+    _, comm1B_BA, comm2B_BA = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B_A, comm2B_A, user_data) #[Y,[X,[X,Y]]]
+    _, comm1B_AB, comm2B_AB = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_B, comm2B_B, user_data) #[X,[Y,[X,Y]]]
+    output_1B += (comm1B_BA) / 24
+    output_2B += (comm2B_AA) / 24
 
     # 4th order terms
-    _, comm1B_AAA, comm2B_AAA = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_AA, comm2B_AA, user_data)
-    _, comm1B_BBB, comm2B_BBB = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B_BB, comm2B_BB, user_data)
-    output_1B += (comm1B_AAA - comm1B_BBB) / 120
-    output_2B += (comm2B_AAA - comm2B_BBB) / 120
+    _, comm1B_AAA, comm2B_AAA = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_AA, comm2B_AA, user_data) #[X,[X,[X,[X,Y]]]]
+    _, comm1B_BBB, comm2B_BBB = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B_BB, comm2B_BB, user_data) #[Y,[Y,[Y,[X,Y]]]]
+    _, comm1B_ABB, comm2B_ABB = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_BB, comm2B_BB, user_data) #[X,[Y,[Y,[X,Y]]]]
+    _, comm1B_BAA, comm2B_BAA = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B_AA, comm2B_AA, user_data) #[Y,[X,[X,[X,Y]]]]
+    _, comm1B_BAB, comm2B_BAB = commutator_2b(OperatorB_1B, OperatorB_2B, comm1B_AB, comm2B_AB, user_data) #[Y,[X,[Y,[X,Y]]]]
+    _, comm1B_ABA, comm2B_ABA = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_BA, comm2B_BA, user_data) #[X,[Y,[X,[X,Y]]]]
+    # X,X,X-Y,Y,Y
+    output_1B -= (comm1B_AAA-comm1B_BBB)/720
+    output_2B -= (comm2B_AAA-comm2B_BBB)/720
+    # Y,X,X-X,Y,Y
+    output_1B += (comm1B_BAA-comm1B_ABB)/360
+    output_2B += (comm2B_BAA-comm2B_ABB)/360
+    # Y,X,Y-X,Y,X
+    output_1B += (comm1B_BAB-comm1B_ABA)/120
+    output_2B += (comm2B_BAB-comm2B_ABA)/120
+
+    # Fifth order term
+    _, comm1B_ABAB, comm2B_ABAB = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B_BAB, comm2B_BAB, user_data)
+    output_1B += comm1B_ABAB/240
+    output_2B += comm2B_ABAB/240
 
     return output_1B, output_2B
 

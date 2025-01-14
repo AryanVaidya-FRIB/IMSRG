@@ -16,6 +16,7 @@
 #------------------------------------------------------------------------------
 
 import numpy as np
+import pandas as pd
 from numpy import array, dot, diag, reshape, transpose
 from scipy.special import bernoulli
 from scipy.linalg import eigvalsh
@@ -23,6 +24,8 @@ from scipy.integrate import odeint, ode
 from math import pi, factorial
 
 from sys import argv
+import time
+import tracemalloc
 
 #-----------------------------------------------------------------------------------
 # basis and index functions
@@ -906,12 +909,22 @@ def calc_mbpt3(f, Gamma, user_data):
 #------------------------------------------------------------------------------
 
 def main():
+  # Start the clock
+  time_start = time.perf_counter()
+
   # grab delta and g from the command line
-  delta      = float(argv[1])
-  g          = float(argv[2])
-  b          = float(argv[3])
+  delta      = 1.0 #float(argv[1])
+#  g          = float(argv[2])
+  b          = 0.4828 #float(argv[3])
 
   particles  = 4
+
+  # Construct output arrays
+  glist = []
+  final_E = []
+  final_step = []
+  total_time = []
+  total_RAM = []
 
   # setup shared data
   dim1B     = 8
@@ -980,56 +993,88 @@ def main():
   # initialize Bernoulli numbers for magnus expansion
   user_data["bernoulli"] = bernoulli(user_data["order"])
 
-  # set up initial Hamiltonian
-  H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
+  for i in range(-13, 13):
+    # Initialize value of g
+    g = i/10
 
-  E, f, Gamma = normal_order(H1B, H2B, user_data) 
-  user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
+    # Define starting RAM use
+    tracemalloc.start()
+    # Start the clock
+    time_start = time.perf_counter()
 
-  # reshape Hamiltonian and omega terms into a linear array (initial ODE vector)
-  y0 = np.append([0],np.append(reshape(Omega1B, -1), reshape(Omega2B, -1)))
+    # set up initial Hamiltonian
+    H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
 
-  # integrator parameters
-  sfinal = 50
-  ds = 0.1
+    E, f, Gamma = normal_order(H1B, H2B, user_data) 
+    user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
-  # integrate flow equations 
-  solver = ode(derivative_wrapper,jac=None)
-  solver.set_integrator('vode', method = 'bdf', order = 5, nsteps=5000)
-  solver.set_f_params(user_data)
-  solver.set_initial_value(y0, 0.)
+    # reshape Hamiltonian and omega terms into a linear array (initial ODE vector)
+    y0 = np.append([0],np.append(reshape(Omega1B, -1), reshape(Omega2B, -1)))
 
-  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
-    "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-    "||eta||", "||fod||", "||Gammaod||"))
-  # print "-----------------------------------------------------------------------------------------------------------------"
-  print("-" * 148)
+    # integrator parameters
+    sfinal = 50
+    ds = 0.1
+    
+    # integrate flow equations 
+    solver = ode(derivative_wrapper,jac=None)
+    solver.set_integrator('vode', method = 'bdf', order = 5, nsteps=5000)
+    solver.set_f_params(user_data)
+    solver.set_initial_value(y0, 0.)
+
+    print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
+      "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
+      "||eta||", "||fod||", "||Gammaod||"))
+    # print "-----------------------------------------------------------------------------------------------------------------"
+    print("-" * 148)
+    
+    eta_norm0 = 1.0e10
+    failed = False
+
+    while solver.successful() and solver.t < sfinal:
+      ys = solver.integrate(sfinal, step=True)
+    
+      if user_data["eta_norm"] > 1.25*eta_norm0: 
+        failed=True
+        break
+    
+      dim2B = dim1B*dim1B
+      _, Omega1B, Omega2B = get_operator_from_y(ys, dim1B, dim2B)
+      E_s, f_s, Gamma_s = magnus_evolve(Omega1B, Omega2B, E, f, Gamma, user_data)
+
+      DE2 = calc_mbpt2(f_s, Gamma_s, user_data)
+      DE3 = calc_mbpt3(f_s, Gamma_s, user_data)
+
+      norm_fod     = calc_fod_norm(f_s, user_data)
+      norm_Gammaod = calc_Gammaod_norm(Gamma_s, user_data)
+
+      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+        solver.t, E_s , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
+      if abs(DE2/E_s) < 10e-8: break
+
+      eta_norm0 = user_data["eta_norm"]
+
+    # Get g-value diagnostics
+    current_time = time.perf_counter()-time_start
+    memkb_current, memkb_peak = tracemalloc.get_traced_memory()
+    memkb_peak = memkb_peak/1024.
+
+    glist.append(g)
+    final_E.append(E_s)
+    final_step.append(solver.t)
+    total_time.append(current_time)
+    total_RAM.append(memkb_peak)
+    print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
+    tracemalloc.stop()
+
+  output = pd.DataFrame({
+    'g':           glist,
+    'Ref Energy':  final_E,
+    'Total Steps': final_step,
+    'Total Time':  total_time,
+    'RAM Usage':   total_RAM
+  })
   
-  eta_norm0 = 1.0e10
-  failed = False
-
-  while solver.successful() and solver.t < sfinal:
-    ys = solver.integrate(sfinal, step=True)
-   
-    if user_data["eta_norm"] > 1.25*eta_norm0: 
-      failed=True
-      break
-   
-    dim2B = dim1B*dim1B
-    _, Omega1B, Omega2B = get_operator_from_y(ys, dim1B, dim2B)
-    E_s, f_s, Gamma_s = magnus_evolve(Omega1B, Omega2B, E, f, Gamma, user_data)
-
-    DE2 = calc_mbpt2(f_s, Gamma_s, user_data)
-    DE3 = calc_mbpt3(f_s, Gamma_s, user_data)
-
-    norm_fod     = calc_fod_norm(f_s, user_data)
-    norm_Gammaod = calc_Gammaod_norm(Gamma_s, user_data)
-
-    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-      solver.t, E_s , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
-    if abs(DE2/E) < 10e-8: break
-
-    eta_norm0 = user_data["eta_norm"]
+  output.to_csv('imsrg-white_d1.0_b0_N4_magnus.csv')
 
 #    solver.integrate(solver.t + ds)
 
