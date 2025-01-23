@@ -1,17 +1,19 @@
 #!/usr/bin/env python
 
 #------------------------------------------------------------------------------
-# matrix_perturbation.py
+# IMSRG_perturbation.py
 #
 # author:   A. Vaidya
-# version:  1.0
-# date:     Nov 26, 2024
+# version:  1.3
+# date:     Jan 16, 2025
 # 
 # tested with Python v3.10
 # 
-# Solves the pairing model for four particles by perturbatively expanding the 
-# Magnus operator first order. Found using H(0)/Delta(0), through element-wise 
-# division. Needs to be fixed.
+# Solves the P3H model for four particles by perturbatively expanding the 
+# Magnus operator first and second orders. Found using H(0)/Delta(0), 
+# through element-wise division.
+# Currently configured for benchmarking, loops through values of g and saves
+# computational values.
 #
 #------------------------------------------------------------------------------
 
@@ -160,7 +162,7 @@ def get_second_order_Omega(f, Gamma, user_data):
   denom_1b = np.zeros_like(f)
   for a in particles:
     for i in holes:
-      denom[a,i] = f[a,a] - f[i,i] + Gamma[idx2B[(a,i)], idx2B[(a,i)]]
+      denom_1b[a,i] = f[a,a] - f[i,i] + Gamma[idx2B[(a,i)], idx2B[(a,i)]]
 
   denom_2b = np.zeros_like(Gamma)
   for a in particles:
@@ -197,7 +199,7 @@ def get_second_order_Omega(f, Gamma, user_data):
   Omega2b_2 = np.zeros_like(Gamma)
   for a in particles:
     for i in holes:
-      if abs(denom)<1.0e-10:
+      if abs(denom_1b[a,i])<1.0e-10:
         val = (0.125 * pi * np.sign(Jod_1b[a,i]) * np.sign(denom_1b[a,i])
         -0.25 * pi * np.sign(Kod_1b[a,i])*np.sign(denom_1b[a,i])
         )
@@ -314,6 +316,7 @@ def main():
   for i in range(-13,13):
     # Initialize value of g
     g = i/10
+    print(f"g = {g}")
 
     # Define starting RAM use
     tracemalloc.start()
@@ -345,23 +348,27 @@ def main():
         0, E , DE2, DE3, E+DE2+DE3, 0, norm_fod, norm_Gammaod))
 
     max_steps = 20
-    #FinalOmega1B = np.zeros_like(f)
-    #FinalOmega2B = np.zeros_like(Gamma)
-    Omegas1B = []
-    Omegas2B = []
+    FinalOmega1B = np.zeros_like(f)
+    FinalOmega2B = np.zeros_like(Gamma)
+    #Omegas1B = []
+    #Omegas2B = []
     for s in range(1, max_steps):
       # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = eta_W(0)
       Omega1B, Omega2B = eta_white(f, Gamma, user_data)
-      OmegaNorm    = np.linalg.norm(Omega1B,ord='fro')+np.linalg.norm(Omega2B,ord='fro')
-    #  FinalOmega1B, FinalOmega2B = BCH(Omega1B, Omega2B, FinalOmega1B, FinalOmega2B, user_data)
+      # Construct the second order Omega - check the formula
+      Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, user_data)
+      fullOmega1B = Omega1B + Omega1B_2
+      fullOmega2B = Omega2B + Omega2B_2
+      OmegaNorm    = np.linalg.norm(fullOmega1B,ord='fro')+np.linalg.norm(fullOmega2B,ord='fro')
+      FinalOmega1B, FinalOmega2B = BCH(fullOmega1B, fullOmega2B, FinalOmega1B, FinalOmega2B, user_data)
 
       # Use Magnus evolution to obtain new E, f, Gamma
-      E, f, Gamma = similarity_transform(Omega1B, Omega2B, E, f, Gamma, user_data)
+      E, f, Gamma = similarity_transform(fullOmega1B, fullOmega2B, E, f, Gamma, user_data)
       if abs(OmegaNorm - user_data["omegaNorm"]) < 1e-5 or abs(E-user_data["ref_energy"]) < 1e-4:
         break
 
-      Omegas1B.append(Omega1B)
-      Omegas2B.append(Omega2B)
+    #  Omegas1B.append(fullOmega1B)
+    #  Omegas2B.append(fullOmega2B)
 
       # Update user_data
       user_data["omegaNorm"] = OmegaNorm
@@ -379,15 +386,15 @@ def main():
 
 
     # Check final value using all stored Magnus operators
-    E_s = E_i
-    f_s = f_i
-    Gamma_s = Gamma_i
-    for i in range(len(Omegas2B)):
-      E_s, f_s, Gamma_s = similarity_transform(Omegas1B[i], Omegas2B[i], E_s, f_s, Gamma_s, user_data)
+  #  E_s = E_i
+  #  f_s = f_i
+  #  Gamma_s = Gamma_i
+  #  for i in range(len(Omegas2B)):
+  #    E_s, f_s, Gamma_s = similarity_transform(Omegas1B[i], Omegas2B[i], E_s, f_s, Gamma_s, user_data)
 
     # Check final value using BCH stored operator (only one operator to consider)
-  #  E_s, f_s, Gamma_s = similarity_transform(FinalOmega1B, FinalOmega2B, E_i, f_i, Gamma_i, user_data)
-  #  print(f"Final GSE: {E_s}")
+    E_s, f_s, Gamma_s = similarity_transform(FinalOmega1B, FinalOmega2B, E_i, f_i, Gamma_i, user_data)
+    print(f"Final GSE: {E_s}")
 
     # Get g-value diagnostics
     current_time = time.perf_counter()-time_start
@@ -410,7 +417,7 @@ def main():
     'RAM Usage':   total_RAM
   })
   
-  output.to_csv('imsrg-white_d1.0_b0.4828_N4_perturbativeStored.csv')
+  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_perturbative2BCH.csv')
 
 
 #------------------------------------------------------------------------------

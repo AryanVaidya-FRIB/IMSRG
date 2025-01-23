@@ -915,7 +915,7 @@ def main():
   # grab delta and g from the command line
   delta      = 1.0 #float(argv[1])
 #  g          = float(argv[2])
-  b          = 0.4828 #float(argv[3])
+  b          = 0 #float(argv[3])
 
   particles  = 4
 
@@ -996,6 +996,7 @@ def main():
   for i in range(-13, 13):
     # Initialize value of g
     g = i/10
+    print(f"g: {g}")
 
     # Define starting RAM use
     tracemalloc.start()

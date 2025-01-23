@@ -4,14 +4,14 @@
 # matrix_perturbation.py
 #
 # author:   A. Vaidya
-# version:  1.0
-# date:     Nov 26, 2024
+# version:  1.1
+# date:     Dec 18, 2024
 # 
 # tested with Python v3.10
 # 
 # Solves the pairing model for four particles by perturbatively expanding the 
 # Magnus operator first order. Found using H(0)/Delta(0), through element-wise 
-# division. Needs to be fixed.
+# division. Fixed.
 #
 #------------------------------------------------------------------------------
 
