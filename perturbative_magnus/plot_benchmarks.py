@@ -23,10 +23,10 @@ import matplotlib.pyplot as plt
 #------------------------------------------------------------------------------
 # Plotting Routine
 #------------------------------------------------------------------------------
-def plot_values(j, indexList, dataList, labels, metric, title, saveName):
+def plot_values(j, indexList, dataList, colorList, labels, metric, title, saveName):
     plt.figure()
     for i in indexList:
-        plt.plot(dataList[i].iloc[:,0].to_numpy(), dataList[i].iloc[:,j].to_numpy(), label = labels[i])
+        plt.plot(dataList[i].iloc[:,0].to_numpy(), dataList[i].iloc[:,j].to_numpy(), label = labels[i], color = colorList[i])
     
     plt.legend()
     plt.xlabel("g")
@@ -41,7 +41,7 @@ def plot_values(j, indexList, dataList, labels, metric, title, saveName):
 
 def main():
     delta = "1.0"
-    b     = "+0.4828"
+    b     = "0"
 
     # Files to pull
     dPath      = "/mnt/c/Users/aryan/Documents/MSU_FRIB/IMSRG/perturbative_magnus/"
@@ -52,6 +52,7 @@ def main():
     # List of each benchmark
     flows = ["magnus","ev1", "perturbativeStored", "perturbative2Stored", "perturbativeBCH", "perturbative2BCH"]
     labels = ["Magnus","Direct Flow", "pMagnus Stored", "pMagnus2 Stored", "pMagnus BCH", "pMagnus2 BCH"]
+    colorList = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
     indexList = range(len(flows))
 
     noMagnus = indexList[1:]
@@ -62,32 +63,32 @@ def main():
     for i in indexList:
         dataList.append(pd.read_csv(filePath+fileString+flows[i]+".csv", index_col=0))
 
-    onlyFirstOrder = [0,1,4,5]
-    plot_values(1, onlyFirstOrder, dataList, labels, "GS Energy", f"GS Energy vs. g - b={b}", outPath+f"GSEnergy_b{b}_pMagBCH.jpg")
-    plot_values(2, onlyFirstOrder, dataList, labels, "s", f"s vs. g - b={b}", outPath+f"num_steps_b{b}_pMag.jpg")
-    plot_values(3, onlyFirstOrder, dataList, labels, "Time Spent (seconds)", f"Time per Flow vs. g - b={b}", outPath+f"time_b{b}_pMagBCH.jpg")
-    plot_values(4, onlyFirstOrder, dataList, labels, "RAM (kb)", f"Memory Usage vs. g - b={b}", outPath+f"RAM_b{b}_pMagBCH.jpg")
+    onlyFirstOrder = [1,2,4]
+    plot_values(1, onlyFirstOrder, dataList, colorList, labels, "GS Energy", f"GS Energy vs. g - b={b}", outPath+f"GSEnergy_b{b}_pMag.jpg")
+    plot_values(2, onlyFirstOrder, dataList, colorList, labels, "s", f"s vs. g - b={b}", outPath+f"num_steps_b{b}_pMag.jpg")
+    plot_values(3, onlyFirstOrder, dataList, colorList, labels, "Time Spent (seconds)", f"Time per Flow vs. g - b={b}", outPath+f"time_b{b}_pMag.jpg")
+    plot_values(4, onlyFirstOrder, dataList, colorList, labels, "RAM (kb)", f"Memory Usage vs. g - b={b}", outPath+f"RAM_b{b}_pMag.jpg")
     return
     # Plot GS energy vs. g - index 1
     # 3 plots generated - 1 for all of them together, 1 for without magnus, 1 without BCH terms
-    plot_values(1, indexList, dataList, labels, "GS Energy", f"GS Energy vs. g - b={b}", outPath+f"GSEnergy_b{b}_all.jpg")
-    plot_values(1, noMagnus, dataList, labels, "GS Energy", f"GS Energy vs. g - b={b}", outPath+f"GSEnergy_b{b}_nomagnus.jpg")
-    plot_values(1, order_comparison, dataList, labels, "GS Energy", f"GS Energy vs. g - b={b}", outPath+f"GSEnergy_b{b}_order.jpg")
+    plot_values(1, indexList, dataList, colorList, labels, "GS Energy", f"GS Energy vs. g - b={b}", outPath+f"GSEnergy_b{b}_all.jpg")
+    plot_values(1, noMagnus, dataList, colorList, labels, "GS Energy", f"GS Energy vs. g - b={b}", outPath+f"GSEnergy_b{b}_nomagnus.jpg")
+    plot_values(1, order_comparison, dataList, colorList, labels, "GS Energy", f"GS Energy vs. g - b={b}", outPath+f"GSEnergy_b{b}_order.jpg")
 
     # Plot num steps vs. g - index 2
-    plot_values(2, indexList, dataList, labels, "s", f"s vs. g - b={b}", outPath+f"num_steps_b{b}_all.jpg")
-    plot_values(2, noMagnus, dataList, labels, "s", f"s vs. g - b={b}", outPath+f"num_steps_b{b}_nomagnus.jpg")
-    plot_values(2, order_comparison, dataList, labels, "s", f"s vs. g - b={b}", outPath+f"num_steps_b{b}_order.jpg")
+    plot_values(2, indexList, dataList, colorList, labels, "s", f"s vs. g - b={b}", outPath+f"num_steps_b{b}_all.jpg")
+    plot_values(2, noMagnus, dataList, colorList, labels, "s", f"s vs. g - b={b}", outPath+f"num_steps_b{b}_nomagnus.jpg")
+    plot_values(2, order_comparison, dataList, colorList, labels, "s", f"s vs. g - b={b}", outPath+f"num_steps_b{b}_order.jpg")
 
     # Plot time vs. g - index 3
-    plot_values(3, indexList, dataList, labels, "Time Spent (seconds)", f"Time per Flow vs. g - b={b}", outPath+f"time_b{b}_all.jpg")
-    plot_values(3, noMagnus, dataList, labels, "Time Spent (seconds)", f"Time per Flow vs. g - b={b}", outPath+f"time_b{b}_nomagnus.jpg")
-    plot_values(3, order_comparison, dataList, labels, "Time Spent (seconds)", f"Time per Flow vs. g - b={b}", outPath+f"time_b{b}_order.jpg")
+    plot_values(3, indexList, dataList, colorList, labels, "Time Spent (seconds)", f"Time per Flow vs. g - b={b}", outPath+f"time_b{b}_all.jpg")
+    plot_values(3, noMagnus, dataList, colorList, labels, "Time Spent (seconds)", f"Time per Flow vs. g - b={b}", outPath+f"time_b{b}_nomagnus.jpg")
+    plot_values(3, order_comparison, dataList, colorList, labels, "Time Spent (seconds)", f"Time per Flow vs. g - b={b}", outPath+f"time_b{b}_order.jpg")
 
     # Plot RAM use vs. g - index 4
-    plot_values(4, indexList, dataList, labels, "RAM (kb)", f"Memory Usage vs. g - b={b}", outPath+f"RAM_b{b}_all.jpg")
-    plot_values(4, noMagnus, dataList, labels, "RAM (kb)", f"Memory Usage vs. g - b={b}", outPath+f"RAM_b{b}_nomagnus.jpg")
-    plot_values(4, order_comparison, dataList, labels, "RAM (kb)", f"Memory Usage vs. g - b={b}", outPath+f"RAM_b{b}_order.jpg")
+    plot_values(4, indexList, dataList, colorList, labels, "RAM (kb)", f"Memory Usage vs. g - b={b}", outPath+f"RAM_b{b}_all.jpg")
+    plot_values(4, noMagnus, dataList, colorList, labels, "RAM (kb)", f"Memory Usage vs. g - b={b}", outPath+f"RAM_b{b}_nomagnus.jpg")
+    plot_values(4, order_comparison, dataList, colorList, labels, "RAM (kb)", f"Memory Usage vs. g - b={b}", outPath+f"RAM_b{b}_order.jpg")
 
 #------------------------------------------------------------------------------
 # make executable

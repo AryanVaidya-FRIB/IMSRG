@@ -20,7 +20,7 @@
 import numpy as np
 import pandas as pd
 from numpy import array, dot, diag, reshape, pi
-from scipy.linalg import eigvalsh, expm
+from scipy.linalg import eigvalsh, expm, ishermitian
 from scipy.special import bernoulli
 from commutators import commutator_2b, similarity_transform, BCH
 from generators import eta_white
@@ -132,15 +132,12 @@ def separate_diag(A_1b, A_2b, user_data):
     for b in particles:
       for i in holes:
         for j in holes:
-          # First the diagonal pieces - don't need to reverse the pp and hh states since the loop will go over them
-          Ad_2b[idx2B[(a,i)], idx2B[(a,i)]] = A_2b[idx2B[(a,i)], idx2B[(a,i)]]
-          Ad_2b[idx2B[(i,a)], idx2B[(i,a)]] = A_2b[idx2B[(i,a)], idx2B[(i,a)]]
-          Ad_2b[idx2B[(i,j)], idx2B[(i,j)]] = A_2b[idx2B[(i,j)], idx2B[(i,j)]]
-          Ad_2b[idx2B[(a,b)], idx2B[(a,b)]] = A_2b[idx2B[(a,b)], idx2B[(a,b)]]
-
-          # Now the off-diagonal - just taking the abij and ijab
+          # The off-diagonal - pphh and hhpp states
           Aod_2b[idx2B[(a,b)], idx2B[(i,j)]] = A_2b[idx2B[(a,b)], idx2B[(i,j)]]
           Aod_2b[idx2B[(i,j)], idx2B[(a,b)]] = A_2b[idx2B[(i,j)], idx2B[(a,b)]]
+
+  # Diagonal 2-body operator (I think this works)
+  Ad_2b = A_2b-Aod_2b
   
   return Ad_1b, Aod_1b, Ad_2b, Aod_2b
 
@@ -356,9 +353,9 @@ def main():
       # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = eta_W(0)
       Omega1B, Omega2B = eta_white(f, Gamma, user_data)
       # Construct the second order Omega - check the formula
-      Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, user_data)
-      fullOmega1B = Omega1B + Omega1B_2
-      fullOmega2B = Omega2B + Omega2B_2
+      #Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, user_data)
+      fullOmega1B = Omega1B #+ Omega1B_2
+      fullOmega2B = Omega2B #+ Omega2B_2
       OmegaNorm    = np.linalg.norm(fullOmega1B,ord='fro')+np.linalg.norm(fullOmega2B,ord='fro')
       FinalOmega1B, FinalOmega2B = BCH(fullOmega1B, fullOmega2B, FinalOmega1B, FinalOmega2B, user_data)
 
@@ -417,7 +414,7 @@ def main():
     'RAM Usage':   total_RAM
   })
   
-  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_perturbative2BCH.csv')
+  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_perturbativeBCH.csv')
 
 
 #------------------------------------------------------------------------------

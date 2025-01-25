@@ -19,6 +19,7 @@ import numpy as np
 from numpy import array, dot, diag, reshape, transpose
 from math import factorial
 from basis import ph_transform_2B, inverse_ph_transform_2B
+from scipy.linalg import ishermitian
 
 #-----------------------------------------------------------------------------------
 # commutator of matrices
@@ -44,6 +45,12 @@ def commutator_2b(A_1, A_2, B_1, B_2, user_data):
   occB_2B   = user_data["occB_2B"]
   occC_2B   = user_data["occC_2B"]
   occphA_2B = user_data["occphA_2B"]
+
+  #############################
+  # Check hermiticity of operators
+  isH1 = int(ishermitian(A_2))
+  isH2 = int(ishermitian(B_2))
+  tFactor = (-1)**(isH1+isH2+1)
 
   #############################        
   # zero-body flow equation
@@ -85,7 +92,7 @@ def commutator_2b(A_1, A_2, B_1, B_2, user_data):
       for i in holes:
         C_1[p,q] += 0.5*(
           crossterm_2b[idx2B[(i,p)], idx2B[(i,q)]] 
-          + transpose(crossterm_2b)[idx2B[(i,p)], idx2B[(i,q)]]
+          + tFactor*transpose(crossterm_2b)[idx2B[(i,q)], idx2B[(i,p)]]
         )
 
   crossterm_2b = dot(A_2, dot(occC_2B, B_2))
@@ -94,7 +101,7 @@ def commutator_2b(A_1, A_2, B_1, B_2, user_data):
       for r in range(dim1B):
         C_1[p,q] += 0.5*(
           crossterm_2b[idx2B[(r,p)], idx2B[(r,q)]] 
-          + transpose(crossterm_2b)[idx2B[(r,p)], idx2B[(r,q)]] 
+          + tFactor*transpose(crossterm_2b)[idx2B[(r,p)], idx2B[(r,q)]] 
         )
 
 
@@ -124,7 +131,7 @@ def commutator_2b(A_1, A_2, B_1, B_2, user_data):
   # A_2.occB.Gamma
   crossterm_2b = dot(A_2, dot(occB_2B, B_2))
 
-  C_2 += 0.5 * (crossterm_2b + transpose(crossterm_2b))
+  C_2 += 0.5 * (crossterm_2b + tFactor * transpose(crossterm_2b))
 
   # 2B - 2B - particle-hole chain
   

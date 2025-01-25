@@ -19,8 +19,7 @@ import numpy as np
 import pandas as pd
 from numpy import array, dot, diag, reshape, transpose
 from scipy.special import bernoulli
-from scipy.linalg import eigvalsh
-from scipy.integrate import odeint, ode
+from scipy.linalg import eigvalsh, ishermitian
 from math import pi, factorial
 
 from sys import argv
@@ -540,6 +539,12 @@ def flow_imsrg2(eta1B, eta2B, f, Gamma, user_data):
   occC_2B   = user_data["occC_2B"]
   occphA_2B = user_data["occphA_2B"]
 
+  #############################
+  # Check hermiticity of operators
+  isH1 = int(ishermitian(eta2B))
+  isH2 = int(ishermitian(Gamma))
+  tFactor = (-1)**(isH1+isH2+1)
+
   #############################        
   # zero-body flow equation
   dE = 0.0
@@ -582,7 +587,7 @@ def flow_imsrg2(eta1B, eta2B, f, Gamma, user_data):
       for i in holes:
         df[p,q] += 0.5*(
           etaGamma[idx2B[(i,p)], idx2B[(i,q)]] 
-          + transpose(etaGamma)[idx2B[(i,p)], idx2B[(i,q)]]
+          + tFactor*transpose(etaGamma)[idx2B[(i,p)], idx2B[(i,q)]]
         )
 
   etaGamma = dot(eta2B, dot(occC_2B, Gamma))
@@ -591,7 +596,7 @@ def flow_imsrg2(eta1B, eta2B, f, Gamma, user_data):
       for r in range(dim1B):
         df[p,q] += 0.5*(
           etaGamma[idx2B[(r,p)], idx2B[(r,q)]] 
-          + transpose(etaGamma)[idx2B[(r,p)], idx2B[(r,q)]] 
+          + tFactor*transpose(etaGamma)[idx2B[(r,p)], idx2B[(r,q)]] 
         )
 
 
@@ -621,7 +626,7 @@ def flow_imsrg2(eta1B, eta2B, f, Gamma, user_data):
   # eta2B.occB.Gamma
   etaGamma = dot(eta2B, dot(occB_2B, Gamma))
 
-  dGamma += 0.5 * (etaGamma + transpose(etaGamma))
+  dGamma += 0.5 * (etaGamma + tFactor*transpose(etaGamma))
 
   # 2B - 2B - particle-hole chain
   
@@ -671,7 +676,7 @@ def get_operator_from_y(y, dim1B, dim2B):
   return zero_body,one_body,two_body
 
 
-def derivative_wrapper(t, y, user_data):
+def derivative_wrapper(t, Omega1B, Omega2B, user_data):
 
   dim1B = user_data["dim1B"]
   dim2B = dim1B*dim1B
@@ -694,7 +699,6 @@ def derivative_wrapper(t, y, user_data):
 
   # extract operator pieces from solution vector
   E, f, Gamma = get_operator_from_y(hamiltonian, dim1B, dim2B)
-  _, Omega1B, Omega2B = get_operator_from_y(y, dim1B, dim2B)
 
   # calculate the generator
   E_s, f_s, Gamma_s = magnus_evolve(Omega1B, Omega2B, E, f, Gamma, user_data)
@@ -703,16 +707,13 @@ def derivative_wrapper(t, y, user_data):
   # calculate the right-hand side
   dOmega1B, dOmega2B = calc_rhs(Omega1B, Omega2B, eta1B_s, eta2B_s, user_data)
 
-  # convert derivatives into linear array
-  dy = np.append([0],np.append(reshape(dOmega1B, -1), reshape(dOmega2B, -1)))
-
   dE, df, dGamma = flow_imsrg2(eta1B_s, eta2B_s, f_s, Gamma_s, user_data)
 
   # share data
   user_data["dE"] = dE
   user_data["eta_norm"] = np.linalg.norm(eta1B_s,ord='fro')+np.linalg.norm(eta2B_s,ord='fro')
   
-  return dy
+  return dOmega1B, dOmega2B
 
 #-----------------------------------------------------------------------------------
 # pairing Hamiltonian and omega terms
@@ -912,10 +913,10 @@ def main():
   # Start the clock
   time_start = time.perf_counter()
 
-  # grab delta and g from the command line
+  # grab delta, g, b
   delta      = 1.0 #float(argv[1])
 #  g          = float(argv[2])
-  b          = 0 #float(argv[3])
+  b          = 0.4828 #float(argv[3])
 
   particles  = 4
 
@@ -1009,18 +1010,10 @@ def main():
     E, f, Gamma = normal_order(H1B, H2B, user_data) 
     user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
-    # reshape Hamiltonian and omega terms into a linear array (initial ODE vector)
-    y0 = np.append([0],np.append(reshape(Omega1B, -1), reshape(Omega2B, -1)))
-
     # integrator parameters
+    s = 0
     sfinal = 50
     ds = 0.1
-    
-    # integrate flow equations 
-    solver = ode(derivative_wrapper,jac=None)
-    solver.set_integrator('vode', method = 'bdf', order = 5, nsteps=5000)
-    solver.set_f_params(user_data)
-    solver.set_initial_value(y0, 0.)
 
     print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
       "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
@@ -1031,15 +1024,16 @@ def main():
     eta_norm0 = 1.0e10
     failed = False
 
-    while solver.successful() and solver.t < sfinal:
-      ys = solver.integrate(sfinal, step=True)
-    
+    while failed == False and s < sfinal:
+      dOmega1B, dOmega2B = derivative_wrapper(s, Omega1B, Omega2B, user_data)
+      Omega1B += dOmega1B*ds
+      Omega2B += dOmega2B*ds
+      s += ds
+
       if user_data["eta_norm"] > 1.25*eta_norm0: 
         failed=True
         break
-    
-      dim2B = dim1B*dim1B
-      _, Omega1B, Omega2B = get_operator_from_y(ys, dim1B, dim2B)
+
       E_s, f_s, Gamma_s = magnus_evolve(Omega1B, Omega2B, E, f, Gamma, user_data)
 
       DE2 = calc_mbpt2(f_s, Gamma_s, user_data)
@@ -1049,10 +1043,12 @@ def main():
       norm_Gammaod = calc_Gammaod_norm(Gamma_s, user_data)
 
       print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-        solver.t, E_s , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
+        s, E_s , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
       if abs(DE2/E_s) < 10e-8: break
+      if abs(user_data["dE"]) < 1e-6: break
 
       eta_norm0 = user_data["eta_norm"]
+
 
     # Get g-value diagnostics
     current_time = time.perf_counter()-time_start
@@ -1061,7 +1057,7 @@ def main():
 
     glist.append(g)
     final_E.append(E_s)
-    final_step.append(solver.t)
+    final_step.append(s)
     total_time.append(current_time)
     total_RAM.append(memkb_peak)
     print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
@@ -1075,7 +1071,7 @@ def main():
     'RAM Usage':   total_RAM
   })
   
-  output.to_csv('imsrg-white_d1.0_b0_N4_magnus.csv')
+  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_magnus.csv')
 
 #    solver.integrate(solver.t + ds)
 
