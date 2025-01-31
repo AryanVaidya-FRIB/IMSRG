@@ -132,14 +132,21 @@ def separate_diag(A_1b, A_2b, user_data):
     for b in particles:
       for i in holes:
         for j in holes:
+          # diagonal
+          Ad_2b[idx2B[(a,b)], idx2B[(a,b)]] = A_2b[idx2B[(a,b)], idx2B[(a,b)]]
+          Ad_2b[idx2B[(a,i)], idx2B[(a,i)]] = A_2b[idx2B[(a,i)], idx2B[(a,i)]]
+          Ad_2b[idx2B[(i,a)], idx2B[(i,a)]] = A_2b[idx2B[(i,a)], idx2B[(i,a)]]
+          Ad_2b[idx2B[(i,j)], idx2B[(i,j)]] = A_2b[idx2B[(i,j)], idx2B[(i,j)]]
           # The off-diagonal - pphh and hhpp states
-          Aod_2b[idx2B[(a,b)], idx2B[(i,j)]] = A_2b[idx2B[(a,b)], idx2B[(i,j)]]
-          Aod_2b[idx2B[(i,j)], idx2B[(a,b)]] = A_2b[idx2B[(i,j)], idx2B[(a,b)]]
+          #Aod_2b[idx2B[(a,b)], idx2B[(i,j)]] = A_2b[idx2B[(a,b)], idx2B[(i,j)]]
+          #Aod_2b[idx2B[(i,j)], idx2B[(a,b)]] = A_2b[idx2B[(i,j)], idx2B[(a,b)]]
 
   # Diagonal 2-body operator (I think this works)
-  Ad_2b = A_2b-Aod_2b
+  Ad_lax = A_2b-Aod_2b # (Includes terms not in the strict definition, so like aibj, abcd, ijkl terms)
+  # diff = Ad_lax-Ad_2b
+  # print(np.linalg.norm(diff, ord="fro"))
   
-  return Ad_1b, Aod_1b, Ad_2b, Aod_2b
+  return Ad_1b, Aod_1b, Ad_lax, Aod_2b
 
 def get_second_order_Omega(f, Gamma, user_data):
   bas1B     = user_data["bas1B"]
@@ -337,12 +344,12 @@ def main():
     
     user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
-    print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
-      "step No", "E" , "DE(2)", "DE(3)", "E+DE", "||Omega||", "||fod||", "||Gammaod||"))
+    print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s  %-14s  %-14s  %-14s"%(
+      "step No", "E" , "DE(2)", "DE(3)", "E+DE", "||Omega1||", "||Omega2||", "||fod||", "||Gammaod||"))
     print("-" * 148)
 
-    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-        0, E , DE2, DE3, E+DE2+DE3, 0, norm_fod, norm_Gammaod))
+    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f  %14.8f  %14.8f"%(
+        0, E , DE2, DE3, E+DE2+DE3, 0, 0, norm_fod, norm_Gammaod))
 
     max_steps = 20
     FinalOmega1B = np.zeros_like(f)
@@ -353,22 +360,23 @@ def main():
       # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = eta_W(0)
       Omega1B, Omega2B = eta_white(f, Gamma, user_data)
       # Construct the second order Omega - check the formula
-      #Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, user_data)
-      fullOmega1B = Omega1B #+ Omega1B_2
-      fullOmega2B = Omega2B #+ Omega2B_2
-      OmegaNorm    = np.linalg.norm(fullOmega1B,ord='fro')+np.linalg.norm(fullOmega2B,ord='fro')
+      Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, user_data)
+      fullOmega1B = Omega1B + Omega1B_2
+      fullOmega2B = Omega2B + Omega2B_2
+      OmegaNorm1    = np.linalg.norm(Omega1B,ord='fro')+np.linalg.norm(Omega2B,ord='fro')
+      OmegaNorm2    = np.linalg.norm(Omega1B_2,ord='fro')+np.linalg.norm(Omega2B_2,ord='fro')
       FinalOmega1B, FinalOmega2B = BCH(fullOmega1B, fullOmega2B, FinalOmega1B, FinalOmega2B, user_data)
 
       # Use Magnus evolution to obtain new E, f, Gamma
       E, f, Gamma = similarity_transform(fullOmega1B, fullOmega2B, E, f, Gamma, user_data)
-      if abs(OmegaNorm - user_data["omegaNorm"]) < 1e-5 or abs(E-user_data["ref_energy"]) < 1e-4:
+      if abs(OmegaNorm1+OmegaNorm2 - user_data["omegaNorm"]) < 1e-5 or abs(E-user_data["ref_energy"]) < 1e-4:
         break
 
     #  Omegas1B.append(fullOmega1B)
     #  Omegas2B.append(fullOmega2B)
 
       # Update user_data
-      user_data["omegaNorm"] = OmegaNorm
+      user_data["omegaNorm"] = OmegaNorm1+OmegaNorm2
       user_data["ref_energy"] = E
 
       # Calculate new metrics
@@ -378,16 +386,16 @@ def main():
       norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
 
       # Print new metrics
-      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-        s, E , DE2, DE3, E+DE2+DE3, OmegaNorm, norm_fod, norm_Gammaod))
+      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f %14.8f  %14.8f   %14.8f   %14.8f"%(
+        s, E , DE2, DE3, E+DE2+DE3, OmegaNorm1, OmegaNorm2, norm_fod, norm_Gammaod))
 
 
     # Check final value using all stored Magnus operators
-  #  E_s = E_i
-  #  f_s = f_i
-  #  Gamma_s = Gamma_i
-  #  for i in range(len(Omegas2B)):
-  #    E_s, f_s, Gamma_s = similarity_transform(Omegas1B[i], Omegas2B[i], E_s, f_s, Gamma_s, user_data)
+    #E_s = E_i
+    #f_s = f_i
+    #Gamma_s = Gamma_i
+    #for i in range(len(Omegas2B)):
+    #  E_s, f_s, Gamma_s = similarity_transform(Omegas1B[i], Omegas2B[i], E_s, f_s, Gamma_s, user_data)
 
     # Check final value using BCH stored operator (only one operator to consider)
     E_s, f_s, Gamma_s = similarity_transform(FinalOmega1B, FinalOmega2B, E_i, f_i, Gamma_i, user_data)
@@ -414,7 +422,7 @@ def main():
     'RAM Usage':   total_RAM
   })
   
-  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_perturbativeBCH.csv')
+  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_perturbative2_strictBCH.csv')
 
 
 #------------------------------------------------------------------------------

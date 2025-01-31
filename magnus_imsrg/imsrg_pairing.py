@@ -237,7 +237,7 @@ def main():
     "calc_rhs":   commutator_2b         # specify the right-hand side and truncation
   }
   # Loop through a set of g values to calculate usage and timing of each
-  for i in range(-13, 13):
+  for i in range(5, 6):
     # Initialize value of g
     g = i/10
 

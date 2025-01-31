@@ -33,7 +33,7 @@ def commutator(a,b):
 # Ex. A_1 is the 1-body piece of A
 # -----------------------------------------------------------------------------
 
-def commutator_2b(A_1, A_2, B_1, B_2, user_data):
+def commutator_2b(A1, A2, B1, B2, user_data):
 
   dim1B     = user_data["dim1B"]
   holes     = user_data["holes"]
@@ -48,66 +48,71 @@ def commutator_2b(A_1, A_2, B_1, B_2, user_data):
 
   #############################
   # Check hermiticity of operators
-  isH1 = int(ishermitian(A_2))
-  isH2 = int(ishermitian(B_2))
+  isH1 = int(ishermitian(A2))
+  isH2 = int(ishermitian(B2))
   tFactor = (-1)**(isH1+isH2+1)
 
   #############################        
   # zero-body flow equation
-  C_0 = 0.0
+  C0 = 0.0
 
   for i in holes:
     for a in particles:
-      C_0 += 2*A_1[i,a] * B_1[a,i] 
+      C0 += A1[i,a] * B1[a,i] - A1[a,i] * B1[i,a]
 
   for i in holes:
-    for j in holes[0:i+1]:
+    for j in holes:
       for a in particles:
-        for b in particles[0:a+1]:
-          C_0 += A_2[idx2B[(i,j)], idx2B[(a,b)]] * B_2[idx2B[(a,b)], idx2B[(i,j)]]
+        for b in particles:
+          C0 += 0.25 * (A2[idx2B[(i,j)], idx2B[(a,b)]] * B2[idx2B[(a,b)], idx2B[(i,j)]]
+                         -B2[idx2B[(i,j)], idx2B[(a,b)]] * A2[idx2B[(a,b)], idx2B[(i,j)]])
 
 
   #############################        
   # one-body flow equation  
-  C_1  = np.zeros_like(B_1)
+  C1  = np.zeros_like(B1)
 
   # 1B - 1B
-  C_1 += commutator(A_1, B_1)
+  C1 += commutator(A1, B1)
 
   # 1B - 2B
   for p in range(dim1B):
     for q in range(dim1B):
       for i in holes:
         for a in particles:
-          C_1[p,q] += (
-            2*A_1[i,a] * B_2[idx2B[(a, p)], idx2B[(i, q)]] 
-            - 2* B_1[i,a] * A_2[idx2B[(a, p)], idx2B[(i, q)]] 
+          C1[p,q] += (
+            A1[i,a] * B2[idx2B[(a, p)], idx2B[(i, q)]] 
+            - A1[a,i] * B2[idx2B[(i, p)], idx2B[(a, q)]] 
+            - B1[i,a] * A2[idx2B[(a, p)], idx2B[(i, q)]] 
+            + B1[a,i] * A2[idx2B[(i, p)], idx2B[(a, q)]]
           )
 
   # 2B - 2B
   # n_a n_b nn_c + nn_a nn_b n_c = n_a n_b + (1 - n_a - n_b) * n_c
-  crossterm_2b = dot(A_2, dot(occB_2B, B_2))
+  crossterm_2B_1 = dot(A2, dot(occB_2B, B2))
+  crossterm_2B_2 = dot(B2, dot(occB_2B, A2))
   for p in range(dim1B):
     for q in range(dim1B):
       for i in holes:
-        C_1[p,q] += 0.5*(
-          crossterm_2b[idx2B[(i,p)], idx2B[(i,q)]] 
-          + tFactor*transpose(crossterm_2b)[idx2B[(i,q)], idx2B[(i,p)]]
+        C1[p,q] += 0.5*(
+          crossterm_2B_1[idx2B[(i,p)], idx2B[(i,q)]] 
+          - crossterm_2B_2[idx2B[(i,p)], idx2B[(i,q)]]
         )
 
-  crossterm_2b = dot(A_2, dot(occC_2B, B_2))
+  crossterm_2B_1 = dot(A2, dot(occC_2B, B2))
+  crossterm_2B_2 = dot(B2, dot(occC_2B, A2))
   for p in range(dim1B):
     for q in range(dim1B):
       for r in range(dim1B):
-        C_1[p,q] += 0.5*(
-          crossterm_2b[idx2B[(r,p)], idx2B[(r,q)]] 
-          + tFactor*transpose(crossterm_2b)[idx2B[(r,p)], idx2B[(r,q)]] 
+        C1[p,q] += 0.5*(
+          crossterm_2B_1[idx2B[(r,p)], idx2B[(r,q)]] 
+          - crossterm_2B_2[idx2B[(r,p)], idx2B[(r,q)]] 
         )
 
 
   #############################        
   # two-body flow equation  
-  C_2 = np.zeros_like(B_2)
+  C2 = np.zeros_like(B2)
 
   # 1B - 2B
   for p in range(dim1B):
@@ -115,52 +120,53 @@ def commutator_2b(A_1, A_2, B_1, B_2, user_data):
       for r in range(dim1B):
         for s in range(dim1B):
           for t in range(dim1B):
-            C_2[idx2B[(p,q)],idx2B[(r,s)]] += (
-              A_1[p,t] * B_2[idx2B[(t,q)],idx2B[(r,s)]] 
-              + A_1[q,t] * B_2[idx2B[(p,t)],idx2B[(r,s)]] 
-              - A_1[t,r] * B_2[idx2B[(p,q)],idx2B[(t,s)]] 
-              - A_1[t,s] * B_2[idx2B[(p,q)],idx2B[(r,t)]]
-              - B_1[p,t] * A_2[idx2B[(t,q)],idx2B[(r,s)]] 
-              - B_1[q,t] * A_2[idx2B[(p,t)],idx2B[(r,s)]] 
-              + B_1[t,r] * A_2[idx2B[(p,q)],idx2B[(t,s)]] 
-              + B_1[t,s] * A_2[idx2B[(p,q)],idx2B[(r,t)]]
+            C2[idx2B[(p,q)],idx2B[(r,s)]] += (
+              A1[p,t] * B2[idx2B[(t,q)],idx2B[(r,s)]] 
+              - A1[q,t] * B2[idx2B[(t,p)],idx2B[(r,s)]] 
+              - A1[t,r] * B2[idx2B[(p,q)],idx2B[(t,s)]] 
+              + A1[t,s] * B2[idx2B[(p,q)],idx2B[(t,r)]]
+              - B1[p,t] * A2[idx2B[(t,q)],idx2B[(r,s)]] 
+              + B1[q,t] * A2[idx2B[(t,p)],idx2B[(r,s)]] 
+              + B1[t,r] * A2[idx2B[(p,q)],idx2B[(t,s)]] 
+              - B1[t,s] * A2[idx2B[(p,q)],idx2B[(t,r)]]
             )
 
   
   # 2B - 2B - particle and hole ladders
-  # A_2.occB.Gamma
-  crossterm_2b = dot(A_2, dot(occB_2B, B_2))
+  # eta2B.occB.Gamma
+  crossterm_2B_1 = dot(A2, dot(occB_2B, B2))
+  crossterm_2B_2 = dot(B2, dot(occB_2B, A2))
 
-  C_2 += 0.5 * (crossterm_2b + tFactor * transpose(crossterm_2b))
+  C2 += 0.5 * (crossterm_2B_1 - crossterm_2B_2)
 
   # 2B - 2B - particle-hole chain
   
   # transform matrices to particle-hole representation and calculate 
   # eta2B_ph.occA_ph.Gamma_ph
-  eta2B_ph = ph_transform_2B(A_2, bas2B, idx2B, basph2B, idxph2B)
-  Gamma_ph = ph_transform_2B(B_2, bas2B, idx2B, basph2B, idxph2B)
+  A2_ph = ph_transform_2B(A2, bas2B, idx2B, basph2B, idxph2B)
+  B2_ph = ph_transform_2B(B2, bas2B, idx2B, basph2B, idxph2B)
 
-  etaGamma_ph = dot(eta2B_ph, dot(occphA_2B, Gamma_ph))
+  crossterm_ph = dot(A2_ph, dot(occphA_2B, B2_ph))
 
   # transform back to standard representation
-  crossterm_2b    = inverse_ph_transform_2B(etaGamma_ph, bas2B, idx2B, basph2B, idxph2B)
+  crossterm_2B    = inverse_ph_transform_2B(crossterm_ph, bas2B, idx2B, basph2B, idxph2B)
 
   # commutator / antisymmetrization
-  work = np.zeros_like(crossterm_2b)
+  work = np.zeros_like(crossterm_2B)
   for i1, (i,j) in enumerate(bas2B):
     for i2, (k,l) in enumerate(bas2B):
       work[i1, i2] -= (
-        crossterm_2b[i1, i2] 
-        - crossterm_2b[idx2B[(j,i)], i2] 
-        - crossterm_2b[i1, idx2B[(l,k)]] 
-        + crossterm_2b[idx2B[(j,i)], idx2B[(l,k)]]
+        crossterm_2B[i1, i2] 
+        - crossterm_2B[idx2B[(j,i)], i2] 
+        - crossterm_2B[i1, idx2B[(l,k)]] 
+        + crossterm_2B[idx2B[(j,i)], idx2B[(l,k)]]
       )
-  crossterm_2b = work
+  crossterm_2B = work
 
-  C_2 += crossterm_2b
+  C2 += crossterm_2B
 
 
-  return C_0, C_1, C_2
+  return C0, C1, C2
 
 # -----------------------------------------------------------------------------
 # BCH for Matrix Transformations of form 

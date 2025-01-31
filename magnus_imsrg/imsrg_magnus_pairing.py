@@ -21,6 +21,7 @@ from numpy import array, dot, diag, reshape, transpose
 from scipy.special import bernoulli
 from scipy.linalg import eigvalsh, ishermitian
 from math import pi, factorial
+from commutators import commutator_2b
 
 from sys import argv
 import time
@@ -539,12 +540,6 @@ def flow_imsrg2(eta1B, eta2B, f, Gamma, user_data):
   occC_2B   = user_data["occC_2B"]
   occphA_2B = user_data["occphA_2B"]
 
-  #############################
-  # Check hermiticity of operators
-  isH1 = int(ishermitian(eta2B))
-  isH2 = int(ishermitian(Gamma))
-  tFactor = (-1)**(isH1+isH2+1)
-
   #############################        
   # zero-body flow equation
   dE = 0.0
@@ -587,7 +582,7 @@ def flow_imsrg2(eta1B, eta2B, f, Gamma, user_data):
       for i in holes:
         df[p,q] += 0.5*(
           etaGamma[idx2B[(i,p)], idx2B[(i,q)]] 
-          + tFactor*transpose(etaGamma)[idx2B[(i,p)], idx2B[(i,q)]]
+          + transpose(etaGamma)[idx2B[(i,p)], idx2B[(i,q)]]
         )
 
   etaGamma = dot(eta2B, dot(occC_2B, Gamma))
@@ -596,7 +591,7 @@ def flow_imsrg2(eta1B, eta2B, f, Gamma, user_data):
       for r in range(dim1B):
         df[p,q] += 0.5*(
           etaGamma[idx2B[(r,p)], idx2B[(r,q)]] 
-          + tFactor*transpose(etaGamma)[idx2B[(r,p)], idx2B[(r,q)]] 
+          + transpose(etaGamma)[idx2B[(r,p)], idx2B[(r,q)]] 
         )
 
 
@@ -626,7 +621,7 @@ def flow_imsrg2(eta1B, eta2B, f, Gamma, user_data):
   # eta2B.occB.Gamma
   etaGamma = dot(eta2B, dot(occB_2B, Gamma))
 
-  dGamma += 0.5 * (etaGamma + tFactor*transpose(etaGamma))
+  dGamma += 0.5 * (etaGamma + transpose(etaGamma))
 
   # 2B - 2B - particle-hole chain
   
@@ -707,7 +702,7 @@ def derivative_wrapper(t, Omega1B, Omega2B, user_data):
   # calculate the right-hand side
   dOmega1B, dOmega2B = calc_rhs(Omega1B, Omega2B, eta1B_s, eta2B_s, user_data)
 
-  dE, df, dGamma = flow_imsrg2(eta1B_s, eta2B_s, f_s, Gamma_s, user_data)
+  dE, df, dGamma = commutator_2b(eta1B_s, eta2B_s, f_s, Gamma_s, user_data)
 
   # share data
   user_data["dE"] = dE
@@ -780,7 +775,7 @@ def calc_dOmega(Omega1B, Omega2B, eta1B, eta2B, user_data):
     temp_eta1B = eta1B
     temp_eta2B = eta2B
     for _ in range(k):
-      _, temp_eta1B, temp_eta2B = flow_imsrg2(Omega1B, Omega2B, temp_eta1B, temp_eta2B, user_data)
+      _, temp_eta1B, temp_eta2B = commutator_2b(Omega1B, Omega2B, temp_eta1B, temp_eta2B, user_data)
 
     if abs(bernoulli_numbers[k]*(np.linalg.norm(temp_eta1B,ord='fro')+np.linalg.norm(temp_eta2B,ord='fro'))/factorial(k)) < 1E-24:
       break
@@ -802,7 +797,7 @@ def magnus_evolve(Omega1B, Omega2B, E, f, Gamma, user_data):
       temp_f = f
       temp_Gamma = Gamma
       for _ in range(k):
-        temp_E, temp_f, temp_Gamma = flow_imsrg2(Omega1B, Omega2B, temp_f, temp_Gamma, user_data)
+        temp_E, temp_f, temp_Gamma = commutator_2b(Omega1B, Omega2B, temp_f, temp_Gamma, user_data)
         
       if abs(temp_E/factorial(k)) < 1E-8 and k > 6: 
         break
@@ -916,7 +911,7 @@ def main():
   # grab delta, g, b
   delta      = 1.0 #float(argv[1])
 #  g          = float(argv[2])
-  b          = 0.4828 #float(argv[3])
+  b          = 0 #float(argv[3])
 
   particles  = 4
 
@@ -1071,7 +1066,7 @@ def main():
     'RAM Usage':   total_RAM
   })
   
-  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_magnus.csv')
+  output.to_csv('imsrg-white_d1.0_b0_N4_magnus.csv')
 
 #    solver.integrate(solver.t + ds)
 
