@@ -46,12 +46,6 @@ def commutator_2b(A1, A2, B1, B2, user_data):
   occC_2B   = user_data["occC_2B"]
   occphA_2B = user_data["occphA_2B"]
 
-  #############################
-  # Check hermiticity of operators
-  isH1 = int(ishermitian(A2))
-  isH2 = int(ishermitian(B2))
-  tFactor = (-1)**(isH1+isH2+1)
-
   #############################        
   # zero-body flow equation
   C0 = 0.0
