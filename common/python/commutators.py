@@ -19,7 +19,6 @@ import numpy as np
 from numpy import array, dot, diag, reshape, transpose
 from math import factorial
 from basis import ph_transform_2B, inverse_ph_transform_2B
-from scipy.linalg import ishermitian
 
 #-----------------------------------------------------------------------------------
 # commutator of matrices

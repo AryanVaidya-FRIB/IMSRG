@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 
 #------------------------------------------------------------------------------
-# imsrg_pairing.py
+# imsrg_magnus_pairing.py
 #
-# author:   H. Hergert 
-# version:  1.5.1
-# date:     Jul 6, 2020
+# author:   H. Hergert and A. Vaidya
+# version:  1.6.1
+# date:     Feb 3, 2025
 # 
 # tested with Python v2.7 and v3.7
 # 
 # Solves the pairing model for four particles in a basis of four doubly 
 # degenerate states by means of an In-Medium Similarity Renormalization 
 # Group (IMSRG) flow.
+# 
 #
 #------------------------------------------------------------------------------
 
@@ -910,8 +911,8 @@ def main():
 
   # grab delta, g, b
   delta      = 1.0 #float(argv[1])
-#  g          = float(argv[2])
-  b          = 0 #float(argv[3])
+  g          = float(argv[1])
+  b          = 0.4828 #float(argv[3])
 
   particles  = 4
 
@@ -989,74 +990,69 @@ def main():
   # initialize Bernoulli numbers for magnus expansion
   user_data["bernoulli"] = bernoulli(user_data["order"])
 
-  for i in range(-13, 13):
-    # Initialize value of g
-    g = i/10
-    print(f"g: {g}")
+  # Define starting RAM use
+  tracemalloc.start()
+  # Start the clock
+  time_start = time.perf_counter()
 
-    # Define starting RAM use
-    tracemalloc.start()
-    # Start the clock
-    time_start = time.perf_counter()
+  # set up initial Hamiltonian
+  H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
 
-    # set up initial Hamiltonian
-    H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
+  E, f, Gamma = normal_order(H1B, H2B, user_data) 
+  user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
-    E, f, Gamma = normal_order(H1B, H2B, user_data) 
-    user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
+  # integrator parameters
+  s = 0
+  sfinal = 50
+  ds = 0.1
 
-    # integrator parameters
-    s = 0
-    sfinal = 50
-    ds = 0.1
+  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
+    "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
+    "||eta||", "||fod||", "||Gammaod||"))
+  # print "-----------------------------------------------------------------------------------------------------------------"
+  print("-" * 148)
+  
+  eta_norm0 = 1.0e10
+  failed = False
 
-    print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
-      "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-      "||eta||", "||fod||", "||Gammaod||"))
-    # print "-----------------------------------------------------------------------------------------------------------------"
-    print("-" * 148)
-    
-    eta_norm0 = 1.0e10
-    failed = False
+  while failed == False and s < sfinal:
+    dOmega1B, dOmega2B = derivative_wrapper(s, Omega1B, Omega2B, user_data)
+    Omega1B += dOmega1B*ds
+    Omega2B += dOmega2B*ds
+    s += ds
 
-    while failed == False and s < sfinal:
-      dOmega1B, dOmega2B = derivative_wrapper(s, Omega1B, Omega2B, user_data)
-      Omega1B += dOmega1B*ds
-      Omega2B += dOmega2B*ds
-      s += ds
+    if user_data["eta_norm"] > 1.25*eta_norm0: 
+      failed=True
+      break
 
-      if user_data["eta_norm"] > 1.25*eta_norm0: 
-        failed=True
-        break
+    E_s, f_s, Gamma_s = magnus_evolve(Omega1B, Omega2B, E, f, Gamma, user_data)
 
-      E_s, f_s, Gamma_s = magnus_evolve(Omega1B, Omega2B, E, f, Gamma, user_data)
+    DE2 = calc_mbpt2(f_s, Gamma_s, user_data)
+    DE3 = calc_mbpt3(f_s, Gamma_s, user_data)
 
-      DE2 = calc_mbpt2(f_s, Gamma_s, user_data)
-      DE3 = calc_mbpt3(f_s, Gamma_s, user_data)
+    norm_fod     = calc_fod_norm(f_s, user_data)
+    norm_Gammaod = calc_Gammaod_norm(Gamma_s, user_data)
 
-      norm_fod     = calc_fod_norm(f_s, user_data)
-      norm_Gammaod = calc_Gammaod_norm(Gamma_s, user_data)
+    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+      s, E_s , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
+    if abs(DE2/E_s) < 10e-8: break
+    if abs(user_data["dE"]) < 1e-6: break
 
-      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-        s, E_s , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
-      if abs(DE2/E_s) < 10e-8: break
-      if abs(user_data["dE"]) < 1e-6: break
-
-      eta_norm0 = user_data["eta_norm"]
+    eta_norm0 = user_data["eta_norm"]
 
 
-    # Get g-value diagnostics
-    current_time = time.perf_counter()-time_start
-    memkb_current, memkb_peak = tracemalloc.get_traced_memory()
-    memkb_peak = memkb_peak/1024.
+  # Get g-value diagnostics
+  current_time = time.perf_counter()-time_start
+  memkb_current, memkb_peak = tracemalloc.get_traced_memory()
+  memkb_peak = memkb_peak/1024.
 
-    glist.append(g)
-    final_E.append(E_s)
-    final_step.append(s)
-    total_time.append(current_time)
-    total_RAM.append(memkb_peak)
-    print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
-    tracemalloc.stop()
+  glist.append(g)
+  final_E.append(E_s)
+  final_step.append(s)
+  total_time.append(current_time)
+  total_RAM.append(memkb_peak)
+  print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
+  tracemalloc.stop()
 
   output = pd.DataFrame({
     'g':           glist,
@@ -1066,7 +1062,7 @@ def main():
     'RAM Usage':   total_RAM
   })
   
-  output.to_csv('imsrg-white_d1.0_b0_N4_magnus.csv')
+  output.to_csv(f'/mnt/home/vaidyaa3/IMSRG/batch_jobs/batch_results/imsrg-white_d1.0_b+0.4828_g{g}_N4_magnus.csv')
 
 #    solver.integrate(solver.t + ds)
 

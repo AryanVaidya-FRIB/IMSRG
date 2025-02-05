@@ -20,7 +20,7 @@
 import numpy as np
 import pandas as pd
 from numpy import array, dot, diag, reshape, pi
-from scipy.linalg import eigvalsh, expm, ishermitian
+from scipy.linalg import eigvalsh, expm
 from scipy.special import bernoulli
 from commutators import commutator_2b, similarity_transform, BCH
 from generators import eta_white

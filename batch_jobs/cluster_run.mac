@@ -1,0 +1,11 @@
+#!/bin/sh
+
+cd batch_results
+rm *
+cd ..
+rm *.out
+
+for i in $(seq -1.3 0.1 1.2);
+do
+    sbatch -J "Magnus_$i" --ntasks=1 --time=10:00:00 --output=%x.out magnus_batch.sb "$i"
+done
