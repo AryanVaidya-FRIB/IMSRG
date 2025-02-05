@@ -133,20 +133,20 @@ def separate_diag(A_1b, A_2b, user_data):
       for i in holes:
         for j in holes:
           # diagonal
-          Ad_2b[idx2B[(a,b)], idx2B[(a,b)]] = A_2b[idx2B[(a,b)], idx2B[(a,b)]]
-          Ad_2b[idx2B[(a,i)], idx2B[(a,i)]] = A_2b[idx2B[(a,i)], idx2B[(a,i)]]
-          Ad_2b[idx2B[(i,a)], idx2B[(i,a)]] = A_2b[idx2B[(i,a)], idx2B[(i,a)]]
-          Ad_2b[idx2B[(i,j)], idx2B[(i,j)]] = A_2b[idx2B[(i,j)], idx2B[(i,j)]]
+          #Ad_2b[idx2B[(a,b)], idx2B[(a,b)]] = A_2b[idx2B[(a,b)], idx2B[(a,b)]]
+          #Ad_2b[idx2B[(a,i)], idx2B[(a,i)]] = A_2b[idx2B[(a,i)], idx2B[(a,i)]]
+          #Ad_2b[idx2B[(i,a)], idx2B[(i,a)]] = A_2b[idx2B[(i,a)], idx2B[(i,a)]]
+          #Ad_2b[idx2B[(i,j)], idx2B[(i,j)]] = A_2b[idx2B[(i,j)], idx2B[(i,j)]]
           # The off-diagonal - pphh and hhpp states
           Aod_2b[idx2B[(a,b)], idx2B[(i,j)]] = A_2b[idx2B[(a,b)], idx2B[(i,j)]]
           Aod_2b[idx2B[(i,j)], idx2B[(a,b)]] = A_2b[idx2B[(i,j)], idx2B[(a,b)]]
 
   # Diagonal 2-body operator (I think this works)
-  # Ad_lax = A_2b-Aod_2b # (Includes terms not in the strict definition, so like aibj, abcd, ijkl terms)
+  Ad_lax = A_2b-Aod_2b # (Includes terms not in the strict definition, so like aibj, abcd, ijkl terms)
   # diff = Ad_lax-Ad_2b
   # print(np.linalg.norm(diff, ord="fro"))
   
-  return Ad_1b, Aod_1b, Ad_2b, Aod_2b
+  return Ad_1b, Aod_1b, Ad_lax, Aod_2b
 
 def get_second_order_Omega(f, Gamma, user_data):
   bas1B     = user_data["bas1B"]
@@ -255,7 +255,7 @@ def main():
   # grab delta and g from the command line
   delta      = 1.0 #float(argv[1])
 #  g          = float(argv[2])
-  b          = 0.4828 #float(argv[3])
+  b          = 0. #float(argv[3])
 
   particles  = 4
 
@@ -317,7 +317,7 @@ def main():
   # initialize Bernoulli numbers for magnus expansion
   user_data["bernoulli"] = bernoulli(user_data["order"])
 
-  for i in range(-13,13):
+  for i in range(-10,-9):
     # Initialize value of g
     g = i/10
     print(f"g = {g}")
@@ -413,6 +413,8 @@ def main():
     total_RAM.append(memkb_peak)
     print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
     tracemalloc.stop()
+
+  return
 
   output = pd.DataFrame({
     'g':           glist,
