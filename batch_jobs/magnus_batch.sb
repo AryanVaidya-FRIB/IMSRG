@@ -1,0 +1,33 @@
+#!/bin/bash --login
+
+# Take in inputs
+fnum=$1
+
+# Number of tasks (processes)
+# SLURM defaults to 1 but we specify anyway
+#SBATCH --ntasks=1
+
+# Memory per node
+# Specify "M" or "G" for MB and GB respectively
+#SBATCH --mem=5M
+
+# Mail type
+# e.g., which events trigger email notifications
+#SBATCH --mail-type=FAIL, INVALID_DEPEND, TIME_LIMIT_90
+
+# Mail address
+#SBATCH --mail-user=vaidyaa3@msu.edu
+
+# Standard output and error to file
+# %x: job name, %j: job ID
+#SBATCH --output=%x-%j.SLURMout
+
+# List of inputs to run
+module purge
+source /mnt/home/vaidyaa3/pymsrg/bin/activate
+/mnt/home/vaidyaa3/pymsrg/bin/python --version
+which python3
+
+# Navigate to IMSRG and run
+cd /mnt/home/vaidyaa3/IMSRG/magnus_imsrg
+/mnt/home/vaidyaa3/pymsrg/bin/python imsrg_magnus_pairing.py "$fnum"
