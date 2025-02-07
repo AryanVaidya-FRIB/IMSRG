@@ -102,6 +102,10 @@ def normal_order(H1B, H2B, user_data):
 
   return E, f, Gamma
 
+#-----------------------------------------------------------------------------------
+# Helper function to split diagonal and off-diagonal elements
+#-----------------------------------------------------------------------------------
+
 def separate_diag(A_1b, A_2b, user_data):
   # Separate the 2B operator A into diagonal and off-diagonal elements
   # Note that inputs could be Hermitian (Gamma) or anti-Hermitian (commutator pieces). Explicitly assign all values.
@@ -132,7 +136,7 @@ def separate_diag(A_1b, A_2b, user_data):
     for b in particles:
       for i in holes:
         for j in holes:
-          # diagonal
+          # strict diagonal terms - pqpq
           #Ad_2b[idx2B[(a,b)], idx2B[(a,b)]] = A_2b[idx2B[(a,b)], idx2B[(a,b)]]
           #Ad_2b[idx2B[(a,i)], idx2B[(a,i)]] = A_2b[idx2B[(a,i)], idx2B[(a,i)]]
           #Ad_2b[idx2B[(i,a)], idx2B[(i,a)]] = A_2b[idx2B[(i,a)], idx2B[(i,a)]]
@@ -142,31 +146,27 @@ def separate_diag(A_1b, A_2b, user_data):
           Aod_2b[idx2B[(i,j)], idx2B[(a,b)]] = A_2b[idx2B[(i,j)], idx2B[(a,b)]]
 
   # Diagonal 2-body operator (I think this works)
-  Ad_lax = A_2b-Aod_2b # (Includes terms not in the strict definition, so like aibj, abcd, ijkl terms)
-  # diff = Ad_lax-Ad_2b
-  # print(np.linalg.norm(diff, ord="fro"))
-  
-  return Ad_1b, Aod_1b, Ad_lax, Aod_2b
+  Ad_2b = A_2b-Aod_2b # (Includes terms not in the strict definition, so like aibj, abcd, ijkl terms)
 
-def get_second_order_Omega(f, Gamma, user_data):
+  return Ad_1b, Aod_1b, Ad_2b, Aod_2b
+
+#-----------------------------------------------------------------------------------
+# Perturbative Magnus Operators
+#-----------------------------------------------------------------------------------
+
+def Delta(f, Gamma, user_data):
+  dim1B     = user_data["dim1B"]
   bas1B     = user_data["bas1B"]
   bas2B     = user_data["bas2B"]
   idx2B     = user_data["idx2B"]
   particles = user_data["particles"]
   holes     = user_data["holes"]
 
-  # Since the commutator is between purely 2-body pieces, we need a zero one-body array
-  zero_1b = np.zeros_like(f)
-
-  # Separate Gamma into diagonal and off-diagonal elements and construct a ratio array
-  _, _, Gamma_d, Gamma_od = separate_diag(zero_1b, Gamma, user_data)
-  ratio = np.zeros_like(Gamma_od)
-
   # Calculate the denominator operator
   denom_1b = np.zeros_like(f)
-  for a in particles:
-    for i in holes:
-      denom_1b[a,i] = f[a,a] - f[i,i] + Gamma[idx2B[(a,i)], idx2B[(a,i)]]
+  for p in range(dim1B):
+    for q in range(p+1, dim1B):
+      denom_1b[p,q] = f[p,p] - f[q,q] + Gamma[idx2B[(p,q)],idx2B[(p,q)]] 
 
   denom_2b = np.zeros_like(Gamma)
   for a in particles:
@@ -182,20 +182,71 @@ def get_second_order_Omega(f, Gamma, user_data):
             - Gamma[idx2B[(b,i)],idx2B[(b,i)]] 
             - Gamma[idx2B[(b,j)],idx2B[(b,j)]] 
           )
+
+  return denom_1b, denom_2b
+
+def zeta(f, Gamma, delta1B, delta2B, user_data):
+  dim1B     = user_data["dim1B"]
+  particles = user_data["particles"]
+  holes     = user_data["holes"]
+  idx2B     = user_data["idx2B"]
+
+  # one-body part of the operator - loops over all pq, not just ai
+  zeta1B  = np.zeros_like(f)
+
+  for p in range(dim1B):
+    for q in range(p+1,dim1B):
+      # catch small or zero denominator - matrix element inspired by arctan version
+      if abs(delta1B[p,q])<1.0e-10:
+        val = 0.25 * pi * np.sign(f[p,q]) * np.sign(delta1B[p,q])
+      else:
+        val = f[p,q]/delta1B[p,q]
+
+      zeta1B[p, q] =  val
+      zeta1B[q, p] = -val 
+
+  # two-body part of the generator - same as White's generator
+  zeta2B = np.zeros_like(Gamma)
+
+  for a in particles:
+    for b in particles:
+      for i in holes:
+        for j in holes:
           # catch small or zero denominator - matrix element inspired by arctan version
-          if abs(denom_2b[idx2B[(a,b)], idx2B[(i,j)]])<1.0e-10:
-            val = 0.25 * pi * np.sign(Gamma[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(denom_2b[idx2B[(a,b)], idx2B[(i,j)]])
+          if abs(delta2B[idx2B[(a,b)], idx2B[(i,j)]])<1.0e-10:
+            val = 0.25 * pi * np.sign(Gamma[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(delta2B[idx2B[(a,b)], idx2B[(i,j)]])
           else:
-            val = Gamma_od[idx2B[(a,b)], idx2B[(i,j)]] / denom_2b[idx2B[(a,b)], idx2B[(i,j)]]
-          # Calculate ratio right here - will be used immediately
-          ratio[idx2B[(a,b)], idx2B[(i,j)]] = val
-          ratio[idx2B[(i,j)], idx2B[(a,b)]] = -val
+            val = Gamma[idx2B[(a,b)], idx2B[(i,j)]] / delta2B[idx2B[(a,b)], idx2B[(i,j)]]
+
+          zeta2B[idx2B[(a,b)],idx2B[(i,j)]] = val
+          zeta2B[idx2B[(i,j)],idx2B[(a,b)]] = -val
+
+  return zeta1B, zeta2B
+
+
+def get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data):
+  bas1B     = user_data["bas1B"]
+  bas2B     = user_data["bas2B"]
+  idx2B     = user_data["idx2B"]
+  particles = user_data["particles"]
+  holes     = user_data["holes"]
+
+  # Since the commutator will have 2 1-body inputs, we need a zero one-body array
+  zero_1b = np.zeros_like(f)
+
+  # Separate Gamma into diagonal and off-diagonal elements and construct a ratio array
+  #print("Diagonal for 2B Hamiltonian")
+  _, _, Gamma_d, Gamma_od = separate_diag(zero_1b, Gamma, user_data)
+
+  zeta1B, zeta2B = zeta(f, Gamma, delta1B, delta2B, user_data)  
 
   # Calculate necessary commutators and extract off-diagonals
-  _, J_1b, J_2b = commutator_2b(zero_1b, ratio, zero_1b, Gamma_od, user_data)
-  _, K_1b, K_2b = commutator_2b(zero_1b, ratio, zero_1b, Gamma_d, user_data)
+  _, J_1b, J_2b = commutator_2b(zeta1B, zeta2B, zero_1b, Gamma_od, user_data)
+  _, K_1b, K_2b = commutator_2b(zeta1B, zeta2B, zero_1b, Gamma_d, user_data)
 
+  #print("Separated Diagonals for od-od Magnus operator")
   _, Jod_1b, _, Jod_2b = separate_diag(J_1b, J_2b, user_data)
+  #print("Separated Diagonals for od-d Magnus operator")
   _, Kod_1b, _, Kod_2b = separate_diag(K_1b, K_2b, user_data)
 
   # Construct output Omegas
@@ -203,12 +254,12 @@ def get_second_order_Omega(f, Gamma, user_data):
   Omega2b_2 = np.zeros_like(Gamma)
   for a in particles:
     for i in holes:
-      if abs(denom_1b[a,i])<1.0e-10:
-        val = (0.125 * pi * np.sign(Jod_1b[a,i]) * np.sign(denom_1b[a,i])
-        -0.25 * pi * np.sign(Kod_1b[a,i])*np.sign(denom_1b[a,i])
+      if abs(delta1B[a,i])<1.0e-10:
+        val = (0.125 * pi * np.sign(Jod_1b[a,i]) * np.sign(delta1B[a,i])
+        +0.25 * pi * np.sign(Kod_1b[a,i])*np.sign(delta1B[a,i])
         )
       else:
-        val = 0.5*(Jod_1b[a,i]/denom_1b[a,i])-(Kod_1b[a,i]/denom_1b[a,i])
+        val = 0.5*(Jod_1b[a,i]/delta1B[a,i])+(Kod_1b[a,i]/delta1B[a,i])
       
       Omega1b_2[a,i] = val
       Omega1b_2[i,a] = -val
@@ -217,15 +268,15 @@ def get_second_order_Omega(f, Gamma, user_data):
     for b in particles:
       for i in holes:
         for j in holes:
-          if abs(denom_2b[idx2B[(a,b)], idx2B[(i,j)]])<1.0e-10:
+          if abs(delta2B[idx2B[(a,b)], idx2B[(i,j)]])<1.0e-10:
             val = (
-              0.125 * pi * np.sign(Jod_2b[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(denom_2b[idx2B[(a,b)], idx2B[(i,j)]])
-              - 0.25 * pi * np.sign(Kod_2b[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(denom_2b[idx2B[(a,b)], idx2B[(i,j)]])
+              0.125 * pi * np.sign(Jod_2b[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(delta2B[idx2B[(a,b)], idx2B[(i,j)]])
+              + 0.25 * pi * np.sign(Kod_2b[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(delta2B[idx2B[(a,b)], idx2B[(i,j)]])
             )
           else:
             val = (
-              0.5*(Jod_2b[idx2B[(a,b)], idx2B[(i,j)]] / denom_2b[idx2B[(a,b)], idx2B[(i,j)]])
-              -(Kod_2b[idx2B[(a,b)], idx2B[(i,j)]] / denom_2b[idx2B[(a,b)], idx2B[(i,j)]])
+              0.5*(Jod_2b[idx2B[(a,b)], idx2B[(i,j)]] / delta2B[idx2B[(a,b)], idx2B[(i,j)]])
+              +(Kod_2b[idx2B[(a,b)], idx2B[(i,j)]] / delta2B[idx2B[(a,b)], idx2B[(i,j)]])
             )
           
           Omega2b_2[idx2B[(a,b)], idx2B[(i,j)]] = val
@@ -253,9 +304,9 @@ def get_operator_from_y(y, dim1B, dim2B):
 def main():
 
   # grab delta and g from the command line
-  delta      = 1.0 #float(argv[1])
-#  g          = float(argv[2])
-  b          = 0. #float(argv[3])
+  delta      = float(argv[1])
+  g          = float(argv[2])
+  b          = float(argv[3])
 
   particles  = 4
 
@@ -317,102 +368,101 @@ def main():
   # initialize Bernoulli numbers for magnus expansion
   user_data["bernoulli"] = bernoulli(user_data["order"])
 
-  for i in range(-10,-9):
-    # Initialize value of g
-    g = i/10
-    print(f"g = {g}")
+  # Initialize value of g
+  print(f"g = {g}")
 
-    # Define starting RAM use
-    tracemalloc.start()
+  # Define starting RAM use
+  tracemalloc.start()
 
-    # begin timer
-    time_start = time.perf_counter()
+  # begin timer
+  time_start = time.perf_counter()
 
-    # set up initial Hamiltonian
-    H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
+  # set up initial Hamiltonian
+  H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
 
-    E, f, Gamma  = normal_order(H1B, H2B, user_data) 
-    E_i = E
-    f_i = f
-    Gamma_i = Gamma
+  E, f, Gamma  = normal_order(H1B, H2B, user_data) 
+  E_i = E
+  f_i = f
+  Gamma_i = Gamma
 
-    # Calculate starting metrics
+  # Calculate starting metrics
+  DE2          = calc_mbpt2(f, Gamma, user_data)
+  DE3          = calc_mbpt3(f, Gamma, user_data)
+  norm_fod     = calc_fod_norm(f, user_data)
+  norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
+  
+  user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
+
+  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s  %-14s  %-14s  %-14s"%(
+    "step No", "E" , "DE(2)", "DE(3)", "E+DE", "||Omega1||", "||Omega2||", "||fod||", "||Gammaod||"))
+  print("-" * 148)
+
+  print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f  %14.8f  %14.8f"%(
+      0, E , DE2, DE3, E+DE2+DE3, 0, 0, norm_fod, norm_Gammaod))
+
+  max_steps = 20
+  #FinalOmega1B = np.zeros_like(f)
+  #FinalOmega2B = np.zeros_like(Gamma)
+  Omegas1B = []
+  Omegas2B = []
+  for s in range(1, max_steps):
+    # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = zeta(0)
+    delta1B, delta2B = Delta(f, Gamma, user_data)
+    Omega1B, Omega2B = zeta(f, Gamma, delta1B, delta2B, user_data)
+    # Construct the second order Omega - check the formula
+    Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data)
+    fullOmega1B = Omega1B + Omega1B_2
+    fullOmega2B = Omega2B + Omega2B_2
+    OmegaNorm1    = np.linalg.norm(Omega1B,ord='fro')+np.linalg.norm(Omega2B,ord='fro')
+    OmegaNorm2    = np.linalg.norm(Omega1B_2,ord='fro')+np.linalg.norm(Omega2B_2,ord='fro')
+  #  FinalOmega1B, FinalOmega2B = BCH(fullOmega1B, fullOmega2B, FinalOmega1B, FinalOmega2B, user_data)
+
+    # Use Magnus evolution to obtain new E, f, Gamma
+    E, f, Gamma = similarity_transform(fullOmega1B, fullOmega2B, E, f, Gamma, user_data)
+    if abs(OmegaNorm1+OmegaNorm2 - user_data["omegaNorm"]) < 1e-5 or abs(E-user_data["ref_energy"]) < 1e-4:
+      break
+
+    Omegas1B.append(fullOmega1B)
+    Omegas2B.append(fullOmega2B)
+
+    # Update user_data
+    user_data["omegaNorm"] = OmegaNorm1+OmegaNorm2
+    user_data["ref_energy"] = E
+
+    # Calculate new metrics
     DE2          = calc_mbpt2(f, Gamma, user_data)
     DE3          = calc_mbpt3(f, Gamma, user_data)
     norm_fod     = calc_fod_norm(f, user_data)
     norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
-    
-    user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
-    print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s  %-14s  %-14s  %-14s"%(
-      "step No", "E" , "DE(2)", "DE(3)", "E+DE", "||Omega1||", "||Omega2||", "||fod||", "||Gammaod||"))
-    print("-" * 148)
-
-    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f  %14.8f  %14.8f"%(
-        0, E , DE2, DE3, E+DE2+DE3, 0, 0, norm_fod, norm_Gammaod))
-
-    max_steps = 20
-    #FinalOmega1B = np.zeros_like(f)
-    #FinalOmega2B = np.zeros_like(Gamma)
-    Omegas1B = []
-    Omegas2B = []
-    for s in range(1, max_steps):
-      # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = eta_W(0)
-      Omega1B, Omega2B = eta_white(f, Gamma, user_data)
-      # Construct the second order Omega - check the formula
-      Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, user_data)
-      fullOmega1B = Omega1B + Omega1B_2
-      fullOmega2B = Omega2B + Omega2B_2
-      OmegaNorm1    = np.linalg.norm(Omega1B,ord='fro')+np.linalg.norm(Omega2B,ord='fro')
-      OmegaNorm2    = np.linalg.norm(Omega1B_2,ord='fro')+np.linalg.norm(Omega2B_2,ord='fro')
-    #  FinalOmega1B, FinalOmega2B = BCH(fullOmega1B, fullOmega2B, FinalOmega1B, FinalOmega2B, user_data)
-
-      # Use Magnus evolution to obtain new E, f, Gamma
-      E, f, Gamma = similarity_transform(fullOmega1B, fullOmega2B, E, f, Gamma, user_data)
-      if abs(OmegaNorm1+OmegaNorm2 - user_data["omegaNorm"]) < 1e-5 or abs(E-user_data["ref_energy"]) < 1e-4:
-        break
-
-      Omegas1B.append(fullOmega1B)
-      Omegas2B.append(fullOmega2B)
-
-      # Update user_data
-      user_data["omegaNorm"] = OmegaNorm1+OmegaNorm2
-      user_data["ref_energy"] = E
-
-      # Calculate new metrics
-      DE2          = calc_mbpt2(f, Gamma, user_data)
-      DE3          = calc_mbpt3(f, Gamma, user_data)
-      norm_fod     = calc_fod_norm(f, user_data)
-      norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
-
-      # Print new metrics
-      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f %14.8f  %14.8f   %14.8f   %14.8f"%(
-        s, E , DE2, DE3, E+DE2+DE3, OmegaNorm1, OmegaNorm2, norm_fod, norm_Gammaod))
+    # Print new metrics
+    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f %14.8f  %14.8f   %14.8f   %14.8f"%(
+      s, E , DE2, DE3, E+DE2+DE3, OmegaNorm1, OmegaNorm2, norm_fod, norm_Gammaod))
 
 
-    # Check final value using all stored Magnus operators
-    E_s = E_i
-    f_s = f_i
-    Gamma_s = Gamma_i
-    for i in range(len(Omegas2B)):
-      E_s, f_s, Gamma_s = similarity_transform(Omegas1B[i], Omegas2B[i], E_s, f_s, Gamma_s, user_data)
+  # Check final value using all stored Magnus operators
+  E_s = E_i
+  f_s = f_i
+  Gamma_s = Gamma_i
+  for i in range(len(Omegas2B)):
+    E_s, f_s, Gamma_s = similarity_transform(Omegas1B[i], Omegas2B[i], E_s, f_s, Gamma_s, user_data)
 
-    # Check final value using BCH stored operator (only one operator to consider)
-    #E_s, f_s, Gamma_s = similarity_transform(FinalOmega1B, FinalOmega2B, E_i, f_i, Gamma_i, user_data)
-    #print(f"Final GSE: {E_s}")
+  # Check final value using BCH stored operator (only one operator to consider)
+  #E_s, f_s, Gamma_s = similarity_transform(FinalOmega1B, FinalOmega2B, E_i, f_i, Gamma_i, user_data)
+  #print(f"Final GSE: {E_s}")
 
-    # Get g-value diagnostics
-    current_time = time.perf_counter()-time_start
-    memkb_current, memkb_peak = tracemalloc.get_traced_memory()
-    memkb_peak = memkb_peak/1024.
+  # Get g-value diagnostics
+  current_time = time.perf_counter()-time_start
+  memkb_current, memkb_peak = tracemalloc.get_traced_memory()
+  memkb_peak = memkb_peak/1024.
 
-    glist.append(g)
-    final_E.append(E_s)
-    final_step.append(s)
-    total_time.append(current_time)
-    total_RAM.append(memkb_peak)
-    print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
-    tracemalloc.stop()
+  glist.append(g)
+  final_E.append(E_s)
+  final_step.append(s)
+  total_time.append(current_time)
+  total_RAM.append(memkb_peak)
+  print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
+  tracemalloc.stop()
 
   return
 

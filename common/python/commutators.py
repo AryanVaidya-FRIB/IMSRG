@@ -115,13 +115,13 @@ def commutator_2b(A1, A2, B1, B2, user_data):
           for t in range(dim1B):
             C2[idx2B[(p,q)],idx2B[(r,s)]] += (
               A1[p,t] * B2[idx2B[(t,q)],idx2B[(r,s)]] 
-              - A1[q,t] * B2[idx2B[(t,p)],idx2B[(r,s)]] 
+              + A1[q,t] * B2[idx2B[(p,t)],idx2B[(r,s)]] 
               - A1[t,r] * B2[idx2B[(p,q)],idx2B[(t,s)]] 
-              + A1[t,s] * B2[idx2B[(p,q)],idx2B[(t,r)]]
+              - A1[t,s] * B2[idx2B[(p,q)],idx2B[(r,t)]]
               - B1[p,t] * A2[idx2B[(t,q)],idx2B[(r,s)]] 
-              + B1[q,t] * A2[idx2B[(t,p)],idx2B[(r,s)]] 
+              - B1[q,t] * A2[idx2B[(p,t)],idx2B[(r,s)]] 
               + B1[t,r] * A2[idx2B[(p,q)],idx2B[(t,s)]] 
-              - B1[t,s] * A2[idx2B[(p,q)],idx2B[(t,r)]]
+              + B1[t,s] * A2[idx2B[(p,q)],idx2B[(r,t)]]
             )
 
   
