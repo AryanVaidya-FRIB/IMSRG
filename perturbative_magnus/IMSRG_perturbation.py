@@ -236,13 +236,13 @@ def get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data):
 
   # Separate Gamma into diagonal and off-diagonal elements and construct a ratio array
   #print("Diagonal for 2B Hamiltonian")
-  _, _, Gamma_d, Gamma_od = separate_diag(zero_1b, Gamma, user_data)
+  f_d, f_od, Gamma_d, Gamma_od = separate_diag(f, Gamma, user_data)
 
-  zeta1B, zeta2B = zeta(f, Gamma, delta1B, delta2B, user_data)  
+  eta1B, eta2B = eta_white(f, Gamma, user_data)
 
   # Calculate necessary commutators and extract off-diagonals
-  _, J_1b, J_2b = commutator_2b(zeta1B, zeta2B, zero_1b, Gamma_od, user_data)
-  _, K_1b, K_2b = commutator_2b(zeta1B, zeta2B, zero_1b, Gamma_d, user_data)
+  _, J_1b, J_2b = commutator_2b(eta1B, eta2B, f_od, Gamma_od, user_data)
+  _, K_1b, K_2b = commutator_2b(eta1B, eta2B, zero_1b, Gamma_d, user_data)
 
   #print("Separated Diagonals for od-od Magnus operator")
   _, Jod_1b, _, Jod_2b = separate_diag(J_1b, J_2b, user_data)
@@ -307,6 +307,10 @@ def main():
   delta      = float(argv[1])
   g          = float(argv[2])
   b          = float(argv[3])
+
+  # Initialize starting setup
+  use_second_order = True
+  store_operators  = True
 
   particles  = 4
 
@@ -401,32 +405,42 @@ def main():
       0, E , DE2, DE3, E+DE2+DE3, 0, 0, norm_fod, norm_Gammaod))
 
   max_steps = 20
-  #FinalOmega1B = np.zeros_like(f)
-  #FinalOmega2B = np.zeros_like(Gamma)
-  Omegas1B = []
-  Omegas2B = []
+  # Initialize output parameters before assignment
+  if store_operators:
+    Omegas1B = []
+    Omegas2B = []
+  else:
+    FinalOmega1B = np.zeros_like(f)
+    FinalOmega2B = np.zeros_like(Gamma)
   for s in range(1, max_steps):
-    # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = zeta(0)
-    delta1B, delta2B = Delta(f, Gamma, user_data)
-    Omega1B, Omega2B = zeta(f, Gamma, delta1B, delta2B, user_data)
-    # Construct the second order Omega - check the formula
-    Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data)
-    fullOmega1B = Omega1B + Omega1B_2
-    fullOmega2B = Omega2B + Omega2B_2
-    OmegaNorm1    = np.linalg.norm(Omega1B,ord='fro')+np.linalg.norm(Omega2B,ord='fro')
-    OmegaNorm2    = np.linalg.norm(Omega1B_2,ord='fro')+np.linalg.norm(Omega2B_2,ord='fro')
-  #  FinalOmega1B, FinalOmega2B = BCH(fullOmega1B, fullOmega2B, FinalOmega1B, FinalOmega2B, user_data)
+    # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = eta(0)
+    Omega1B, Omega2B = eta_white(f, Gamma, user_data)
+    fullOmega1B = Omega1B
+    fullOmega2B = Omega2B
+    OmegaNorm1  = np.linalg.norm(Omega1B,ord='fro')+np.linalg.norm(Omega2B,ord='fro')
+    OmegaNorm   = OmegaNorm1
+    if use_second_order:
+      # Construct the second order Omega - check the formula
+      delta1B, delta2B = Delta(f, Gamma, user_data)
+      Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data)
+      fullOmega1B += Omega1B_2
+      fullOmega2B += Omega2B_2
+      OmegaNorm2  = np.linalg.norm(Omega1B_2,ord='fro')+np.linalg.norm(Omega2B_2,ord='fro')
+      OmegaNorm   += OmegaNorm2
+    
+    if store_operators:
+      Omegas1B.append(fullOmega1B)
+      Omegas2B.append(fullOmega2B)
+    else:
+      FinalOmega1B, FinalOmega2B = BCH(fullOmega1B, fullOmega2B, FinalOmega1B, FinalOmega2B, user_data)
 
     # Use Magnus evolution to obtain new E, f, Gamma
     E, f, Gamma = similarity_transform(fullOmega1B, fullOmega2B, E, f, Gamma, user_data)
-    if abs(OmegaNorm1+OmegaNorm2 - user_data["omegaNorm"]) < 1e-5 or abs(E-user_data["ref_energy"]) < 1e-4:
+    if abs(OmegaNorm - user_data["omegaNorm"]) < 1e-5 or abs(E-user_data["ref_energy"]) < 1e-4:
       break
 
-    Omegas1B.append(fullOmega1B)
-    Omegas2B.append(fullOmega2B)
-
     # Update user_data
-    user_data["omegaNorm"] = OmegaNorm1+OmegaNorm2
+    user_data["omegaNorm"] = OmegaNorm
     user_data["ref_energy"] = E
 
     # Calculate new metrics
@@ -436,20 +450,27 @@ def main():
     norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
 
     # Print new metrics
-    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f %14.8f  %14.8f   %14.8f   %14.8f"%(
-      s, E , DE2, DE3, E+DE2+DE3, OmegaNorm1, OmegaNorm2, norm_fod, norm_Gammaod))
+    if use_second_order:
+      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f %14.8f  %14.8f   %14.8f   %14.8f"%(
+        s, E , DE2, DE3, E+DE2+DE3, OmegaNorm1, OmegaNorm2, norm_fod, norm_Gammaod))
+    else:
+      print("%8.5f %14.8f   %14.8f   %14.8f %14.8f  %14.8f %14.8f  %14.8f   %14.8f"%(
+        s, E , DE2, DE3, E+DE2+DE3, OmegaNorm, 0, norm_fod, norm_Gammaod))
+    # Loop ends here
 
-
-  # Check final value using all stored Magnus operators
   E_s = E_i
   f_s = f_i
   Gamma_s = Gamma_i
-  for i in range(len(Omegas2B)):
-    E_s, f_s, Gamma_s = similarity_transform(Omegas1B[i], Omegas2B[i], E_s, f_s, Gamma_s, user_data)
 
-  # Check final value using BCH stored operator (only one operator to consider)
-  #E_s, f_s, Gamma_s = similarity_transform(FinalOmega1B, FinalOmega2B, E_i, f_i, Gamma_i, user_data)
-  #print(f"Final GSE: {E_s}")
+  if store_operators:
+    # Check final value using all stored Magnus operators
+    for i in range(len(Omegas2B)):
+      E_s, f_s, Gamma_s = similarity_transform(Omegas1B[i], Omegas2B[i], E_s, f_s, Gamma_s, user_data)
+  else:
+    # Check final value using BCH stored operator (only one operator to consider)
+    E_s, f_s, Gamma_s = similarity_transform(FinalOmega1B, FinalOmega2B, E_i, f_i, Gamma_i, user_data)
+
+  print(f"Final GSE: {E_s}")
 
   # Get g-value diagnostics
   current_time = time.perf_counter()-time_start
@@ -473,8 +494,16 @@ def main():
     'Total Time':  total_time,
     'RAM Usage':   total_RAM
   })
+
+  out_type = ''
+  if use_second_order:
+    out_type += '2'
+  if store_operators:
+    out_type += '_Stored'
+  if store_operators == False:
+    out_type += '_BCH'
   
-  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_perturbative2_strictStored.csv')
+  output.to_csv(f'imsrg-white_d{delta}_b{b}_N4_perturbative{out_type}.csv')
 
 
 #------------------------------------------------------------------------------
