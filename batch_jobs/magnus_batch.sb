@@ -29,5 +29,6 @@ source /mnt/home/vaidyaa3/pymsrg/bin/activate
 which python3
 
 # Navigate to IMSRG and run
-cd /mnt/home/vaidyaa3/IMSRG/magnus_imsrg
-/mnt/home/vaidyaa3/pymsrg/bin/python imsrg_magnus_pairing.py "$fnum"
+cd /mnt/home/vaidyaa3/IMSRG/perturbative_magnus
+echo "Starting Run for g= $fnum"
+/mnt/home/vaidyaa3/pymsrg/bin/python IMSRG_perturbation.py "$fnum"

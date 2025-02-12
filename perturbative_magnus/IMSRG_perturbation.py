@@ -304,15 +304,16 @@ def get_operator_from_y(y, dim1B, dim2B):
 def main():
 
   # grab delta and g from the command line
-  delta      = float(argv[1])
-  g          = float(argv[2])
-  b          = float(argv[3])
+  delta      = 1.0 #float(argv[1])
+  g          = float(argv[1])
+  b          = 0.4828 #float(argv[3])
 
   # Initialize starting setup
   use_second_order = True
   store_operators  = True
 
   particles  = 4
+  max_steps = 30
 
   # Construct output arrays
   glist = []
@@ -404,7 +405,6 @@ def main():
   print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f  %14.8f  %14.8f"%(
       0, E , DE2, DE3, E+DE2+DE3, 0, 0, norm_fod, norm_Gammaod))
 
-  max_steps = 20
   # Initialize output parameters before assignment
   if store_operators:
     Omegas1B = []
@@ -485,8 +485,6 @@ def main():
   print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
   tracemalloc.stop()
 
-  return
-
   output = pd.DataFrame({
     'g':           glist,
     'Ref Energy':  final_E,
@@ -503,7 +501,7 @@ def main():
   if store_operators == False:
     out_type += '_BCH'
   
-  output.to_csv(f'imsrg-white_d{delta}_b{b}_N4_perturbative{out_type}.csv')
+  output.to_csv(f'/mnt/home/vaidyaa3/IMSRG/batch_jobs/batch_results/d{delta}_g{g}_b{b}_N4_perturbative{out_type}.csv')
 
 
 #------------------------------------------------------------------------------
