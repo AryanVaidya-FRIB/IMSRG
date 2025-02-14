@@ -50,9 +50,9 @@ def main():
     fileString = f"imsrg-white_d{delta}_b{b}_N4_"
     
     # List of each benchmark
-    flows = ["magnus","ev1", "perturbativeStored", "perturbative2_Stored", "perturbativeBCH"]
-    labels = ["Magnus","Direct Flow", "pMagnus Stored", "pMagnus2 Stored", "pMagnus BCH"]
-    colorList = ['C0', 'C1', 'C2', 'C3', 'C4']
+    flows = ["magnus","ev1", "perturbativeStored", "perturbative2_Stored", "perturbativeBCH", "perturbative2_BCH"]
+    labels = ["Magnus","Direct Flow", "pMagnus Stored", "pMagnus2 Stored", "pMagnus BCH", "pMagnus2 BCH"]
+    colorList = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
     indexList = range(len(flows))
 
     noMagnus = indexList[1:]
