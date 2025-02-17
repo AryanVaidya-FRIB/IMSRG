@@ -125,27 +125,21 @@ def separate_diag(A_1b, A_2b, user_data):
   # Separate 1-body operator
   for a in particles:
     for i in holes:
-      Ad_1b[a,a] = A_1b[a,a]
-      Ad_1b[i,i] = A_1b[i,i]
-
       Aod_1b[a,i] = A_1b[a,i]
       Aod_1b[i,a] = A_1b[i,a]
+
+  Ad_1b = A_1b-Aod_1b
 
   # Separate 2-body operator
   for a in particles:
     for b in particles:
       for i in holes:
         for j in holes:
-          # strict diagonal terms - pqpq
-          #Ad_2b[idx2B[(a,b)], idx2B[(a,b)]] = A_2b[idx2B[(a,b)], idx2B[(a,b)]]
-          #Ad_2b[idx2B[(a,i)], idx2B[(a,i)]] = A_2b[idx2B[(a,i)], idx2B[(a,i)]]
-          #Ad_2b[idx2B[(i,a)], idx2B[(i,a)]] = A_2b[idx2B[(i,a)], idx2B[(i,a)]]
-          #Ad_2b[idx2B[(i,j)], idx2B[(i,j)]] = A_2b[idx2B[(i,j)], idx2B[(i,j)]]
           # The off-diagonal - pphh and hhpp states
           Aod_2b[idx2B[(a,b)], idx2B[(i,j)]] = A_2b[idx2B[(a,b)], idx2B[(i,j)]]
           Aod_2b[idx2B[(i,j)], idx2B[(a,b)]] = A_2b[idx2B[(i,j)], idx2B[(a,b)]]
 
-  # Diagonal 2-body operator (I think this works)
+  # Diagonal 2-body operator
   Ad_2b = A_2b-Aod_2b # (Includes terms not in the strict definition, so like aibj, abcd, ijkl terms)
 
   return Ad_1b, Aod_1b, Ad_2b, Aod_2b
@@ -164,9 +158,9 @@ def Delta(f, Gamma, user_data):
 
   # Calculate the denominator operator
   denom_1b = np.zeros_like(f)
-  for p in range(dim1B):
-    for q in range(p+1, dim1B):
-      denom_1b[p,q] = f[p,p] - f[q,q] + Gamma[idx2B[(p,q)],idx2B[(p,q)]] 
+  for a in particles:
+    for i in holes:
+      denom_1b[a,i] = f[a,a] - f[i,i] + Gamma[idx2B[(a,i)],idx2B[(a,i)]] 
 
   denom_2b = np.zeros_like(Gamma)
   for a in particles:
@@ -185,44 +179,6 @@ def Delta(f, Gamma, user_data):
 
   return denom_1b, denom_2b
 
-def zeta(f, Gamma, delta1B, delta2B, user_data):
-  dim1B     = user_data["dim1B"]
-  particles = user_data["particles"]
-  holes     = user_data["holes"]
-  idx2B     = user_data["idx2B"]
-
-  # one-body part of the operator - loops over all pq, not just ai
-  zeta1B  = np.zeros_like(f)
-
-  for p in range(dim1B):
-    for q in range(p+1,dim1B):
-      # catch small or zero denominator - matrix element inspired by arctan version
-      if abs(delta1B[p,q])<1.0e-10:
-        val = 0.25 * pi * np.sign(f[p,q]) * np.sign(delta1B[p,q])
-      else:
-        val = f[p,q]/delta1B[p,q]
-
-      zeta1B[p, q] =  val
-      zeta1B[q, p] = -val 
-
-  # two-body part of the generator - same as White's generator
-  zeta2B = np.zeros_like(Gamma)
-
-  for a in particles:
-    for b in particles:
-      for i in holes:
-        for j in holes:
-          # catch small or zero denominator - matrix element inspired by arctan version
-          if abs(delta2B[idx2B[(a,b)], idx2B[(i,j)]])<1.0e-10:
-            val = 0.25 * pi * np.sign(Gamma[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(delta2B[idx2B[(a,b)], idx2B[(i,j)]])
-          else:
-            val = Gamma[idx2B[(a,b)], idx2B[(i,j)]] / delta2B[idx2B[(a,b)], idx2B[(i,j)]]
-
-          zeta2B[idx2B[(a,b)],idx2B[(i,j)]] = val
-          zeta2B[idx2B[(i,j)],idx2B[(a,b)]] = -val
-
-  return zeta1B, zeta2B
-
 
 def get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data):
   bas1B     = user_data["bas1B"]
@@ -234,15 +190,20 @@ def get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data):
   # Since the commutator will have 2 1-body inputs, we need a zero one-body array
   zero_1b = np.zeros_like(f)
 
-  # Separate Gamma into diagonal and off-diagonal elements and construct a ratio array
-  #print("Diagonal for 2B Hamiltonian")
-  f_d, f_od, Gamma_d, Gamma_od = separate_diag(f, Gamma, user_data)
+  # Get f1 from the derivation
+  f1 = f-np.diag(np.diag(f))
 
+  # Calculate White's generator - use f, or otherwise diagonal will be zero
   eta1B, eta2B = eta_white(f, Gamma, user_data)
 
+  # Separate Gamma into diagonal and off-diagonal elements and construct a ratio array
+  #print("Diagonal for 2B Hamiltonian")
+  f1_d, f1_od, Gamma_d, Gamma_od = separate_diag(f1, Gamma, user_data)
+
   # Calculate necessary commutators and extract off-diagonals
-  _, J_1b, J_2b = commutator_2b(eta1B, eta2B, f_od, Gamma_od, user_data)
-  _, K_1b, K_2b = commutator_2b(eta1B, eta2B, zero_1b, Gamma_d, user_data)
+  # Note that f1_od = f_od
+  _, J_1b, J_2b = commutator_2b(eta1B, eta2B, f1_od, Gamma_od, user_data)
+  _, K_1b, K_2b = commutator_2b(eta1B, eta2B, f1_d, Gamma_d, user_data)
 
   #print("Separated Diagonals for od-od Magnus operator")
   _, Jod_1b, _, Jod_2b = separate_diag(J_1b, J_2b, user_data)
@@ -362,6 +323,7 @@ def main():
     "occB_2B":    occB_2B,
     "occC_2B":    occC_2B,
     "occphA_2B":  occphA_2B,
+    "dE"       :  1e10,
     "omegaNorm":  1e10,
     "ref_energy": 0,
 
@@ -448,6 +410,9 @@ def main():
     DE3          = calc_mbpt3(f, Gamma, user_data)
     norm_fod     = calc_fod_norm(f, user_data)
     norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
+    user_data["dE"] = DE2+DE3
+    if abs(DE2/E) < 10e-8: break
+    if abs(user_data["dE"]) < 1e-6: break
 
     # Print new metrics
     if use_second_order:
