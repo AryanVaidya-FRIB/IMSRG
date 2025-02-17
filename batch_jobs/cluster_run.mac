@@ -1,6 +1,6 @@
 #!/bin/sh
 
-for i in $(seq -1.1 0.1 1.1);
+for i in $(seq -1.0 0.1 1.0);
 do
     sbatch -J "pMagnus2_b0.4828_Stored_$i" --ntasks=1 --time=10:00:00 --output=%x.out magnus_batch.sb "$i"
 done
