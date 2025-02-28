@@ -210,6 +210,9 @@ def get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data):
   #print("Separated Diagonals for od-d Magnus operator")
   _, Kod_1b, _, Kod_2b = separate_diag(K_1b, K_2b, user_data)
 
+  container_1b = np.zeros_like(f)
+  container_2b = np.zeros_like(Gamma)
+
   # Construct output Omegas
   Omega1b_2 = np.zeros_like(f)
   Omega2b_2 = np.zeros_like(Gamma)
@@ -220,10 +223,13 @@ def get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data):
         +0.25 * pi * np.sign(Kod_1b[a,i])*np.sign(delta1B[a,i])
         )
       else:
-        val = 0.5*(Jod_1b[a,i]/delta1B[a,i])+(Kod_1b[a,i]/delta1B[a,i])
+        val1 = 0.5*Jod_1b[a,i]/delta1B[a,i]
+        val2 = Kod_1b[a,i]/delta1B[a,i]
       
-      Omega1b_2[a,i] = val
-      Omega1b_2[i,a] = -val
+      Omega1b_2[a,i] = val1+val2
+      Omega1b_2[i,a] = -val1-val2
+      container_1b[a,i] = val1
+      container_1b[i,a] = -val1
 
   for a in particles:
     for b in particles:
@@ -235,10 +241,69 @@ def get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data):
               + 0.25 * pi * np.sign(Kod_2b[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(delta2B[idx2B[(a,b)], idx2B[(i,j)]])
             )
           else:
-            val = (
-              0.5*(Jod_2b[idx2B[(a,b)], idx2B[(i,j)]] / delta2B[idx2B[(a,b)], idx2B[(i,j)]])
-              +(Kod_2b[idx2B[(a,b)], idx2B[(i,j)]] / delta2B[idx2B[(a,b)], idx2B[(i,j)]])
-            )
+            val1 = 0.5*(Jod_2b[idx2B[(a,b)], idx2B[(i,j)]] / delta2B[idx2B[(a,b)], idx2B[(i,j)]])
+            val2 = Kod_2b[idx2B[(a,b)], idx2B[(i,j)]] / delta2B[idx2B[(a,b)], idx2B[(i,j)]]
+          
+          Omega2b_2[idx2B[(a,b)], idx2B[(i,j)]] = val1+val2
+          Omega2b_2[idx2B[(i,j)], idx2B[(a,b)]] = -val1-val2
+          container_2b[idx2B[(a,b)], idx2B[(i,j)]] = val1
+          container_2b[idx2B[(i,j)], idx2B[(a,b)]] = -val1
+
+  od_norm = np.linalg.norm(container_1b, ord="fro") + np.linalg.norm(container_2b, ord="fro")
+  print(f"2nd order od term has norm {od_norm}")
+
+  return Omega1b_2, Omega2b_2
+
+def get_simpler_Omega2(f, Gamma, delta1B, delta2B, user_data):
+  bas1B     = user_data["bas1B"]
+  bas2B     = user_data["bas2B"]
+  idx2B     = user_data["idx2B"]
+  particles = user_data["particles"]
+  holes     = user_data["holes"]
+
+  # Since the commutator will have 2 1-body inputs, we need a zero one-body array
+  zero_1b = np.zeros_like(f)
+
+  # Get f1 from the derivation
+  f1 = f-np.diag(np.diag(f))
+
+  # Calculate White's generator - use f, or otherwise diagonal will be zero
+  eta1B, eta2B = eta_white(f, Gamma, user_data)
+
+  # Separate Gamma into diagonal and off-diagonal elements and construct a ratio array
+  #print("Diagonal for 2B Hamiltonian")
+  f1_d, f1_od, Gamma_d, Gamma_od = separate_diag(f1, Gamma, user_data)
+  right_1b = f1_d+(f1_od/2)
+  right_2b = Gamma_d+(Gamma_od/2)
+
+  # Calculate necessary commutators and extract off-diagonals
+  # Note that f1_od = f_od
+  _, A_1b, A_2b = commutator_2b(eta1B, eta2B, right_1b, right_2b, user_data)
+
+  # Separate off-diagonal terms
+  _, Aod_1b, _, Aod_2b = separate_diag(A_1b, A_2b, user_data)
+
+  # Construct output Omegas
+  Omega1b_2 = np.zeros_like(f)
+  Omega2b_2 = np.zeros_like(Gamma)
+  for a in particles:
+    for i in holes:
+      if abs(delta1B[a,i])<1.0e-10:
+        val = 0.25 * pi * np.sign(Aod_1b[a,i])*np.sign(delta1B[a,i])
+      else:
+        val = Aod_1b[a,i]/delta1B[a,i]
+      
+      Omega1b_2[a,i] = val
+      Omega1b_2[i,a] = -val
+
+  for a in particles:
+    for b in particles:
+      for i in holes:
+        for j in holes:
+          if abs(delta2B[idx2B[(a,b)], idx2B[(i,j)]])<1.0e-10:
+            val = 0.25 * pi * np.sign(Aod_2b[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(delta2B[idx2B[(a,b)], idx2B[(i,j)]])
+          else:
+            val = Aod_2b[idx2B[(a,b)], idx2B[(i,j)]] / delta2B[idx2B[(a,b)], idx2B[(i,j)]]
           
           Omega2b_2[idx2B[(a,b)], idx2B[(i,j)]] = val
           Omega2b_2[idx2B[(i,j)], idx2B[(a,b)]] = -val
@@ -267,7 +332,7 @@ def main():
   # grab delta and g from the command line
   delta      = 1.0 #float(argv[1])
   g          = float(argv[1])
-  b          = 0.4828 #float(argv[3])
+  b          = 0.5 #float(argv[3])
 
   # Initialize starting setup
   use_second_order = True
@@ -336,7 +401,7 @@ def main():
   user_data["bernoulli"] = bernoulli(user_data["order"])
 
   # Initialize value of g
-  print(f"g = {g}")
+  print(f"b = {b}, g = {g}")
 
   # Define starting RAM use
   tracemalloc.start()
