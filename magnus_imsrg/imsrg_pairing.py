@@ -260,6 +260,10 @@ def main():
   sfinal = 50
   ds = 0.1
 
+  sList = []
+  EList = []
+  GammaList = []
+
   print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
     "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
     "||eta||", "||fod||", "||Gammaod||"))
@@ -288,6 +292,9 @@ def main():
     print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
       solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
     if abs(DE2/E) < 10e-8: break
+    sList.append(solver.t)
+    EList.append(E)
+    GammaList.append(norm_Gammaod)
 
     eta_norm0 = user_data["eta_norm"]
     
@@ -311,8 +318,15 @@ def main():
     'Total Time':  total_time,
     'RAM Usage':   total_RAM
   })
+
+  step_output = pd.DataFrame({
+    "s":           sList,
+    "E":           EList,
+    "Gammaod":     GammaList
+  })
   
-  output.to_csv('imsrg-white_d1.0_b+0.4828_N4_ev1.csv')
+  output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1.csv')
+  step_output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1_fullflow.csv')
 
 #    solver.integrate(solver.t + ds)
 

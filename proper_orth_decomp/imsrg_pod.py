@@ -97,7 +97,7 @@ def make_design(y0, sfinal, ds, user_data):
   ys_list = [y0]
     # integrate flow equations 
   solver = ode(derivative_wrapper,jac=None)
-  solver.set_integrator('vode', method='bdf', min_step=ds, order=5, nsteps=1000)
+  solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
   solver.set_f_params(user_data)
   solver.set_initial_value(y0, 0.)
 
@@ -112,7 +112,7 @@ def make_design(y0, sfinal, ds, user_data):
   failed = False
 
   while solver.successful() and solver.t < sfinal:
-      ys = solver.integrate(sfinal, step=True)
+      ys = solver.integrate(solver.t+ds)
   
       if user_data["eta_norm"] > 1.25*eta_norm0: 
           failed=True
@@ -141,9 +141,11 @@ def make_POD_matrix(ys_list):
   # Constructs Ur through SVD
   design_matrix = np.vstack(ys_list).transpose()
   U, s, Vh = svd(design_matrix, full_matrices=False, compute_uv=True)
-  r = len(s[s>1e-8])
+  print(s)
+  r = 25 #5, 10, 15, 20, 25
   Ur = U[:,:r]
-  return Ur
+  print(f"Rank {r} ROM")
+  return Ur,r
 
 def POD_wrapper(t, y, user_data):
   dim1B = user_data["dim1B"]
@@ -279,6 +281,7 @@ def main():
   final_step = []
   total_time = []
   total_RAM = []
+  POD_RAM = []
 
   # setup shared data
   dim1B     = 8
@@ -341,9 +344,6 @@ def main():
   # Define starting RAM use
   tracemalloc.start()
 
-  # Start the clock
-  time_start = time.perf_counter()
-
   # set up initial Hamiltonian
   H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
 
@@ -353,19 +353,36 @@ def main():
   y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
   sPod = 0.5
+  ds_pod = sPod/50
+
   sfinal = 50
   ds = 0.01
 
   # Construct POD matrix
-  ys_list = make_design(y0, sPod, ds, user_data)
+  ys_list = make_design(y0, sPod, ds_pod, user_data)
   # Reinitialize user_data
   user_data["dE"]       = 0
   user_data["eta_norm"] = 0
-  Ur = make_POD_matrix(ys_list)
+  Ur, r = make_POD_matrix(ys_list)
   user_data["Ur"] = Ur
+
+ # Get memory use from making POD
+  pod_memkb_current, pod_memkb_peak = tracemalloc.get_traced_memory()
+  pod_memkb_peak = pod_memkb_peak/1024.
+  tracemalloc.stop()
+
+  # Restart profiling for just the flow
+  tracemalloc.start()
 
   # Get initial a0, Ur_inv
   a0 = Ur.transpose() @ y0
+
+  sList = []
+  EList = []
+  GammaList = []
+
+  # Start the clock
+  time_start = time.perf_counter()
 
   # integrate reduced flow equations 
   solver = ode(POD_wrapper,jac=None)
@@ -404,6 +421,10 @@ def main():
       solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
     if abs(DE2/E) < 10e-8: break
 
+    sList.append(solver.t)
+    EList.append(E)
+    GammaList.append(norm_Gammaod)
+
     eta_norm0 = user_data["eta_norm"]
     
   # Get g-value diagnostics
@@ -416,6 +437,7 @@ def main():
   final_step.append(solver.t)
   total_time.append(current_time)
   total_RAM.append(memkb_peak)
+  POD_RAM.append(pod_memkb_peak)
   print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
   tracemalloc.stop()
 
@@ -424,10 +446,18 @@ def main():
     'Ref Energy':  final_E,
     'Total Steps': final_step,
     'Total Time':  total_time,
-    'RAM Usage':   total_RAM
+    'RAM Usage':   total_RAM,
+    'POD RAM':     POD_RAM
+  })
+
+  step_output = pd.DataFrame({
+    "s":           sList,
+    "E":           EList,
+    "Gammaod":     GammaList
   })
   
-  output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_pod.csv')
+  output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_pod_rank{r}.csv')
+  step_output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_pod_rank{r}_fullflow.csv')
 
 #    solver.integrate(solver.t + ds)
 
