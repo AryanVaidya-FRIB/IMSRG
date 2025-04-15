@@ -291,7 +291,7 @@ def main():
 
     print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
       solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
-    if abs(DE2/E) < 10e-8: break
+    if abs(DE2/E) < 1e-6: break # 1e-9 before
     sList.append(solver.t)
     EList.append(E)
     GammaList.append(norm_Gammaod)

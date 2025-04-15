@@ -5,11 +5,11 @@
 #
 # author:   A. Vaidya 
 # version:  1.0
-# date:     March 17, 2025
+# date:     April 15, 2025
 # 
 # tested with Python v3.10
 # 
-# Solves the pairing model by applying POD to the IMSRG flow
+# Performs the offline stage for constructing the ROM
 #
 #------------------------------------------------------------------------------
 
@@ -27,66 +27,6 @@ from commutators import *
 from sys import argv
 import time
 import tracemalloc
-
-#-----------------------------------------------------------------------------------
-# derivative wrapper
-#-----------------------------------------------------------------------------------
-def get_operator_from_y(y, dim1B, dim2B):  
-  # reshape the solution vector into 0B, 1B, 2B pieces
-  #print(y)
-  ptr = 0
-  zero_body = y[ptr]
-
-  ptr += 1
-  #print(y[ptr:ptr+dim1B*dim1B])
-  one_body = reshape(y[ptr:ptr+dim1B*dim1B], (dim1B, dim1B))
-
-  ptr += dim1B*dim1B
-  two_body = reshape(y[ptr:ptr+dim2B*dim2B], (dim2B, dim2B))
-
-  return zero_body,one_body,two_body
-
-def POD_wrapper(t, y, user_data):
-  dim1B = user_data["dim1B"]
-  dim2B = dim1B*dim1B
-
-
-  holes     = user_data["holes"]
-  particles = user_data["particles"]
-  bas1B     = user_data["bas1B"]
-  bas2B     = user_data["bas2B"]
-  basph2B   = user_data["basph2B"]
-  idx2B     = user_data["idx2B"]
-  idxph2B   = user_data["idxph2B"]
-  occA_2B   = user_data["occA_2B"]
-  occB_2B   = user_data["occB_2B"]
-  occC_2B   = user_data["occC_2B"]
-  occphA_2B = user_data["occphA_2B"]
-  calc_eta  = user_data["calc_eta"]
-  calc_rhs  = user_data["calc_rhs"]
-  Ur        = user_data["Ur"]
-
-  # extract operator pieces from solution vector
-  x           = Ur @ y
-  #print(x)
-  E, f, Gamma = get_operator_from_y(x, dim1B, dim2B)
-
-
-  # calculate the generator
-  eta1B, eta2B = calc_eta(f, Gamma, user_data)
-
-  # calculate the right-hand side
-  dE, df, dGamma = calc_rhs(eta1B, eta2B, f, Gamma, user_data)
-
-  # convert derivatives into linear array, and multiply by Ur^dag
-  dx   = np.append([dE], np.append(reshape(df, -1), reshape(dGamma, -1)))
-  dy   = Ur.transpose() @ dx
-
-  # share data
-  user_data["dE"] = dE
-  user_data["eta_norm"] = np.linalg.norm(eta1B,ord='fro')+np.linalg.norm(eta2B,ord='fro')
-  
-  return dy
 
 #-----------------------------------------------------------------------------------
 # pairing Hamiltonian
@@ -162,31 +102,144 @@ def normal_order(H1B, H2B, user_data):
 
   return E, f, Gamma
 
+#-----------------------------------------------------------------------------------
+# derivative wrapper
+#-----------------------------------------------------------------------------------
+def get_operator_from_y(y, dim1B, dim2B):  
+  # reshape the solution vector into 0B, 1B, 2B pieces
+  #print(y)
+  ptr = 0
+  zero_body = y[ptr]
+
+  ptr += 1
+  #print(y[ptr:ptr+dim1B*dim1B])
+  one_body = reshape(y[ptr:ptr+dim1B*dim1B], (dim1B, dim1B))
+
+  ptr += dim1B*dim1B
+  two_body = reshape(y[ptr:ptr+dim2B*dim2B], (dim2B, dim2B))
+
+  return zero_body,one_body,two_body
+
+
+def derivative_wrapper(t, y, user_data):
+
+  dim1B = user_data["dim1B"]
+  dim2B = dim1B*dim1B
+
+
+  holes     = user_data["holes"]
+  particles = user_data["particles"]
+  bas1B     = user_data["bas1B"]
+  bas2B     = user_data["bas2B"]
+  basph2B   = user_data["basph2B"]
+  idx2B     = user_data["idx2B"]
+  idxph2B   = user_data["idxph2B"]
+  occA_2B   = user_data["occA_2B"]
+  occB_2B   = user_data["occB_2B"]
+  occC_2B   = user_data["occC_2B"]
+  occphA_2B = user_data["occphA_2B"]
+  calc_eta  = user_data["calc_eta"]
+  calc_rhs  = user_data["calc_rhs"]
+
+  # extract operator pieces from solution vector
+  E, f, Gamma = get_operator_from_y(y, dim1B, dim2B)
+
+
+  # calculate the generator
+  eta1B, eta2B = calc_eta(f, Gamma, user_data)
+
+  # calculate the right-hand side
+  dE, df, dGamma = calc_rhs(eta1B, eta2B, f, Gamma, user_data)
+
+  # convert derivatives into linear array
+  dy   = np.append([dE], np.append(reshape(df, -1), reshape(dGamma, -1)))
+
+  # share data
+  user_data["dE"] = dE
+  user_data["eta_norm"] = np.linalg.norm(eta1B,ord='fro')+np.linalg.norm(eta2B,ord='fro')
+  
+  return dy
+
+#-----------------------------------------------------------------------------------
+# Design Matrix Constructor
+#-----------------------------------------------------------------------------------
+def make_design(y0, sfinal, ds, user_data):
+  # Generates list of Hamiltonians for early times to construct POD
+  dim1B = user_data["dim1B"]
+
+  ys_list = [y0]
+    # integrate flow equations 
+  solver = ode(derivative_wrapper,jac=None)
+  solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
+  solver.set_f_params(user_data)
+  solver.set_initial_value(y0, 0.)
+
+  print("Initial Run to make Ur")
+  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
+      "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
+      "||eta||", "||fod||", "||Gammaod||"))
+  # print "-----------------------------------------------------------------------------------------------------------------"
+  print("-" * 148)
+  
+  eta_norm0 = 1.0e10
+  failed = False
+
+  while solver.successful() and solver.t < sfinal:
+      ys = solver.integrate(solver.t+ds)
+  
+      if user_data["eta_norm"] > 1.25*eta_norm0: 
+          failed=True
+          break
+  
+      dim2B = dim1B*dim1B
+      E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
+
+      DE2 = calc_mbpt2(f, Gamma, user_data)
+      DE3 = calc_mbpt3(f, Gamma, user_data)
+
+      norm_fod     = calc_fod_norm(f, user_data)
+      norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
+
+      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
+      if abs(DE2/E) < 10e-8: break
+
+      eta_norm0 = user_data["eta_norm"]
+
+      ys_list.append(ys)
+
+  return ys_list
+
+#-----------------------------------------------------------------------------------
+# Galerkin Projection Method
+#-----------------------------------------------------------------------------------
+def Galerkin_Projection(ys_list):
+  # Constructs Ur through SVD
+  design_matrix = np.vstack(ys_list).transpose()
+  U, s, Vh = svd(design_matrix, full_matrices=False, compute_uv=True)
+  print(s)
+  r = 10 #5, 10, 15, 20, 25
+  Ur = U[:,:r]
+  print(f"Rank {r} ROM")
+  return Ur,r
+
 #------------------------------------------------------------------------------
 # Main program
 #------------------------------------------------------------------------------
-
 def main():
-  # Input should be formatted python -m imsrg_pod.py delta g b model sPod rank
-  # Will convert to a prettier parser down the road
   # grab delta and g from the command line - edited for batch compatibility
   delta      = float(argv[1])
   g          = float(argv[2])
   b          = float(argv[3])
-
-  # Pull model, POD max s, and model rank
   model      = str(argv[4])
-  sPod       = float(argv[5])
-  r          = int(argv[6])
-
-  # File IO variables
-  ROMPath = "/mnt/c/Users/aryan/Documents/MSU_FRIB/IMSRG/proper_orth_decomp/ROMs/"
-  outPath = "/mnt/c/Users/aryan/Documents/MSU_FRIB/IMSRG/proper_orth_decomp/"
 
   # Values to control POD flow
   particles  = 4
   sPod       = 0.5
   full_rank  = 50
+
+  # IO commands
+  outpath    = "/mnt/c/Users/aryan/Documents/MSU_FRIB/IMSRG/proper_orth_decomp/ROMs/"
 
   # Construct output arrays
   glist = []
@@ -251,114 +304,43 @@ def main():
 
     "calc_eta":   eta_white,          # specify the generator (function object)
     "calc_rhs":   commutator_2b,      # specify the right-hand side and truncation
-    "Ur":         0.                  # Container for the ROM matrix
+    "model":      model               # projection model to construct ROM
   }
 
   # Define starting RAM use
   tracemalloc.start()
+  time_start = time.perf_counter()
 
   # set up initial Hamiltonian
   H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
-
   E, f, Gamma = normal_order(H1B, H2B, user_data) 
-
-  # Get stored POD matrix
-  Ur = np.loadtxt(ROMPath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.txt")
-  user_data["Ur"] = Ur
 
   # reshape Hamiltonian into a linear array (initial ODE vector)
   y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
+  # Get number of time steps to iterate over
   ds_pod = sPod/full_rank
 
-  sfinal = 50
-  ds = 0.001
+  # Construct POD matrix - integration happens in make_design()
+  ys_list = make_design(y0, sPod, ds_pod, user_data, model)
 
-  sList = []
-  EList = []
-  GammaList = []
+  # Make ROM matrix
+  if model == "Galerkin":
+    Ur, r = Galerkin_Projection(ys_list)
+  elif model == "SINDy":
+    Ur, r = Galerkin_Projection(ys_list)
+  else:
+    print("Model type not recognized. Please use Galerkin, SINDy, or PGLS.")
+    return
 
-  # Restart profiling for just the flow
-  tracemalloc.start()
-
-  # Get initial a0, Ur_inv
-  a0 = Ur.transpose() @ y0
-
-  # Start the clock
-  time_start = time.perf_counter()
-
-  # integrate reduced flow equations 
-  solver = ode(POD_wrapper,jac=None)
-  solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
-  solver.set_f_params(user_data)
-  solver.set_initial_value(a0, 0)
-
-  print("Run using POD Matrix")
-  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
-    "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-    "||eta||", "||fod||", "||Gammaod||"))
-  # print "-----------------------------------------------------------------------------------------------------------------"
-  print("-" * 148)
-  
-  eta_norm0 = 1.0e10
-  failed = False
-
-  while solver.successful() and solver.t < sfinal:
-    ys = solver.integrate(sfinal, step=True)
-  
-    if user_data["eta_norm"] > 1.25*eta_norm0: 
-      failed=True
-      break
-  
-    dim2B = dim1B*dim1B
-    xs = Ur @ ys
-    E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
-
-    DE2 = calc_mbpt2(f, Gamma, user_data)
-    DE3 = calc_mbpt3(f, Gamma, user_data)
-
-    norm_fod     = calc_fod_norm(f, user_data)
-    norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
-
-    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
-    if abs(DE2/E) < 1e-6: break # 1e-9 before
-
-    sList.append(solver.t)
-    EList.append(E)
-    GammaList.append(norm_Gammaod)
-
-    eta_norm0 = user_data["eta_norm"]
-    
-  # Get g-value diagnostics
-  current_time = time.perf_counter()-time_start
-  memkb_current, memkb_peak = tracemalloc.get_traced_memory()
-  memkb_peak = memkb_peak/1024.
-
-  glist.append(g)
-  final_E.append(E)
-  final_step.append(solver.t)
-  total_time.append(current_time)
-  total_RAM.append(memkb_peak)
-  print(f"Loop Time: {current_time} sec. RAM used: {memkb_peak} kb.")
+  # Get memory use from making POD
+  total_time = time.perf_counter()-time_start
+  pod_memkb_current, pod_memkb_peak = tracemalloc.get_traced_memory()
+  pod_memkb_peak = pod_memkb_peak/1024.
   tracemalloc.stop()
-
-  output = pd.DataFrame({
-    'g':           glist,
-    'Ref Energy':  final_E,
-    'Total Steps': final_step,
-    'Total Time':  total_time,
-    'RAM Usage':   total_RAM,
-  })
-
-  step_output = pd.DataFrame({
-    "s":           sList,
-    "E":           EList,
-    "Gammaod":     GammaList
-  })
   
-  output.to_csv(outPath+f'imsrg-white_d{delta}_g{g}_b{b}_N4_pod_rank{r}.csv')
-  step_output.to_csv(outPath+f'imsrg-white_d{delta}_g{g}_b{b}_N4_pod_rank{r}_fullflow.csv')
+  print(f"RAM Use:{pod_memkb_peak} kb\nTime Spent: {total_time} s")
+  np.savetxt(outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.txt", Ur)
 
 #    solver.integrate(solver.t + ds)
 
@@ -367,3 +349,4 @@ def main():
 #------------------------------------------------------------------------------
 if __name__ == "__main__": 
   main()
+
