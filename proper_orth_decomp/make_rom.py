@@ -15,15 +15,20 @@
 
 import numpy as np
 import pandas as pd
+import pysindy as ps
+import opinf
 from numpy import array, dot, diag, reshape, transpose
 from scipy.linalg import eigvalsh, svd
 from scipy.integrate import odeint, ode
 from math import pi
+import pickle
+
 from basis import *
 from classification import *
 from generators import *
 from commutators import *
 
+import os
 from sys import argv
 import time
 import tracemalloc
@@ -168,13 +173,16 @@ def make_design(y0, sfinal, ds, user_data):
   dim1B = user_data["dim1B"]
 
   ys_list = [y0]
+  dys_list = []
     # integrate flow equations 
   solver = ode(derivative_wrapper,jac=None)
   solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
   solver.set_f_params(user_data)
   solver.set_initial_value(y0, 0.)
+  if user_data["model"] != "Galerkin":
+    dys_list.append(solver.f(solver.t, solver.y, user_data))
 
-  print("Initial Run to make Ur")
+  print("Constructing list of state vectors")
   print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
       "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
       "||eta||", "||fod||", "||Gammaod||"))
@@ -207,8 +215,10 @@ def make_design(y0, sfinal, ds, user_data):
       eta_norm0 = user_data["eta_norm"]
 
       ys_list.append(ys)
+      if user_data["model"] != "Galerkin":
+          dys_list.append(solver.f(solver.t+ds, ys, user_data))
 
-  return ys_list
+  return ys_list, dys_list
 
 #-----------------------------------------------------------------------------------
 # Galerkin Projection Method
@@ -218,10 +228,48 @@ def Galerkin_Projection(ys_list):
   design_matrix = np.vstack(ys_list).transpose()
   U, s, Vh = svd(design_matrix, full_matrices=False, compute_uv=True)
   print(s)
-  r = 10 #5, 10, 15, 20, 25
+  r = 15 #5, 10, 15, 20, 25
   Ur = U[:,:r]
   print(f"Rank {r} ROM")
   return Ur,r
+
+#-----------------------------------------------------------------------------------
+# SINDy Matrix Calculations
+#-----------------------------------------------------------------------------------
+def SINDy_model(ys_list, dys_list, ds):
+  X = np.vstack(ys_list)
+  X_dot = np.vstack(dys_list)
+  r = 3 # Degree of SINDy polynomial expansion
+  # Using PySINDy for calculations
+  # Least squares for optimization, 5th degree polynomial library
+  model = ps.SINDy(
+    optimizer = ps.STLSQ(threshold=0.01, alpha = 0.5, verbose=True),
+    feature_library = ps.PolynomialLibrary(degree=r)
+  )
+  model.fit(X, t=ds, x_dot = X_dot)
+  return model, r
+
+#-----------------------------------------------------------------------------------
+# Operator Inference Calculations
+#-----------------------------------------------------------------------------------
+def OpInf_model(ys_list, dys_list):
+  X     = np.vstack(ys_list).transpose()
+  Xdot = np.vstack(dys_list).transpose()
+
+  # Use OpInf for calculations - construct basis (similar to Galerkin projection)
+  basis = opinf.basis.PODBasis(svdval_threshold=1e-35)
+  basis.fit(X)
+  r = basis.shape[1]
+
+  # Fit X, Xdot to quadratic order
+  X_    = basis.compress(X)
+  Xdot_ = basis.compress(Xdot)
+  model = opinf.models.ContinuousModel(
+      operators = "cAH",
+      solver=opinf.lstsq.L2Solver(regularizer=1e-8),
+      ).fit(states = X_, ddts = Xdot_)
+  
+  return basis, model, r
 
 #------------------------------------------------------------------------------
 # Main program
@@ -301,7 +349,6 @@ def main():
     "eta_norm":   0.0,                # variables for sharing data between ODE solver
     "dE":         0.0,                # and main routine
 
-
     "calc_eta":   eta_white,          # specify the generator (function object)
     "calc_rhs":   commutator_2b,      # specify the right-hand side and truncation
     "model":      model               # projection model to construct ROM
@@ -322,13 +369,17 @@ def main():
   ds_pod = sPod/full_rank
 
   # Construct POD matrix - integration happens in make_design()
-  ys_list = make_design(y0, sPod, ds_pod, user_data, model)
+  ys_list, dys_list = make_design(y0, sPod, ds_pod, user_data)
+  Ur = 0
 
   # Make ROM matrix
+  print(f"Constructing ROM using {model} model type.")
   if model == "Galerkin":
     Ur, r = Galerkin_Projection(ys_list)
   elif model == "SINDy":
-    Ur, r = Galerkin_Projection(ys_list)
+    Ur, r = SINDy_model(ys_list, dys_list, ds_pod)
+  elif model == "OpInf":
+    basis, mod, r = OpInf_model(ys_list, dys_list)
   else:
     print("Model type not recognized. Please use Galerkin, SINDy, or PGLS.")
     return
@@ -340,8 +391,17 @@ def main():
   tracemalloc.stop()
   
   print(f"RAM Use:{pod_memkb_peak} kb\nTime Spent: {total_time} s")
-  np.savetxt(outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.txt", Ur)
-
+  if model == "Galerkin":
+    np.savetxt(outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.txt", Ur)
+  elif model == "SINDy":
+    with open(outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.pkl", 'wb') as f:
+      pickle.dump(Ur, f)
+  elif model == "OpInf":
+    oiPath = outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4"
+    os.mkdir(oiPath)
+    basis.save(oiPath+"/basis.h5")
+    mod.save(oiPath+"/model.h5")
+  
 #    solver.integrate(solver.t + ds)
 
 #------------------------------------------------------------------------------

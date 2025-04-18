@@ -15,10 +15,14 @@
 
 import numpy as np
 import pandas as pd
+import pysindy as ps
+import opinf
 from numpy import array, dot, diag, reshape, transpose
 from scipy.linalg import eigvalsh, svd
 from scipy.integrate import odeint, ode
 from math import pi
+import pickle
+
 from basis import *
 from classification import *
 from generators import *
@@ -46,7 +50,7 @@ def get_operator_from_y(y, dim1B, dim2B):
 
   return zero_body,one_body,two_body
 
-def POD_wrapper(t, y, user_data):
+def Galerkin_wrapper(t, y, user_data):
   dim1B = user_data["dim1B"]
   dim2B = dim1B*dim1B
 
@@ -87,6 +91,12 @@ def POD_wrapper(t, y, user_data):
   user_data["eta_norm"] = np.linalg.norm(eta1B,ord='fro')+np.linalg.norm(eta2B,ord='fro')
   
   return dy
+
+def SINDy_derivative(t, y, Ur):
+  return Ur.predict(y)
+
+def oi_derivative(t, x, Ur):
+  return Ur.rhs(t = t, state = x)
 
 #-----------------------------------------------------------------------------------
 # pairing Hamiltonian
@@ -186,7 +196,6 @@ def main():
   # Values to control POD flow
   particles  = 4
   sPod       = 0.5
-  full_rank  = 50
 
   # Construct output arrays
   glist = []
@@ -194,7 +203,6 @@ def main():
   final_step = []
   total_time = []
   total_RAM = []
-  POD_RAM = []
 
   # setup shared data
   dim1B     = 8
@@ -262,16 +270,10 @@ def main():
 
   E, f, Gamma = normal_order(H1B, H2B, user_data) 
 
-  # Get stored POD matrix
-  Ur = np.loadtxt(ROMPath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.txt")
-  user_data["Ur"] = Ur
-
   # reshape Hamiltonian into a linear array (initial ODE vector)
   y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
-  ds_pod = sPod/full_rank
-
-  sfinal = 50
+  sfinal = 15
   ds = 0.001
 
   sList = []
@@ -281,19 +283,51 @@ def main():
   # Restart profiling for just the flow
   tracemalloc.start()
 
-  # Get initial a0, Ur_inv
-  a0 = Ur.transpose() @ y0
-
   # Start the clock
   time_start = time.perf_counter()
 
   # integrate reduced flow equations 
-  solver = ode(POD_wrapper,jac=None)
-  solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
-  solver.set_f_params(user_data)
-  solver.set_initial_value(a0, 0)
+  solver = 0.
+  a0 = 0.
+  basis = 0.
+  Ur = 0.
+  if model == "Galerkin":
+    # Get initial a0, Ur_inv
+    Ur = np.loadtxt(ROMPath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.txt")
+    user_data["Ur"] = Ur
+    a0 = Ur.transpose() @ y0
+    solver = ode(Galerkin_wrapper,jac=None)
+    # Get stored POD matrix
 
-  print("Run using POD Matrix")
+    solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
+    solver.set_f_params(user_data)
+    solver.set_initial_value(a0, 0)
+
+  elif model == "SINDy": 
+    # Load saved model
+    with open(ROMPath + f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.pkl", 'rb') as f:
+      Ur = pickle.load(f)
+    # construct rhs function using the SINDy form    
+    solver = ode(SINDy_derivative, jac=None)
+    solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
+    solver.set_f_params(Ur)
+    solver.set_initial_value(y0, 0.)
+  
+  elif model == "OpInf":
+    # Load saved model
+    basis = opinf.basis.PODBasis.load(ROMPath+f"OpInf_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/basis.h5")
+    Ur = opinf.models.ContinuousModel.load(ROMPath+f"OpInf_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/model.h5")
+    # construct rhs function using the OpInf form
+    solver = ode(oi_derivative, jac=None)
+    solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
+    solver.set_f_params(Ur)
+    solver.set_initial_value(basis.compress(y0), 0.)
+  else:
+    print("Model not recognized. Please check documentation for approved models.")
+
+  user_data["Ur"] = Ur
+
+  print(f"Run using {model} ROM")
   print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
     "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
     "||eta||", "||fod||", "||Gammaod||"))
@@ -306,13 +340,20 @@ def main():
   while solver.successful() and solver.t < sfinal:
     ys = solver.integrate(sfinal, step=True)
   
-    if user_data["eta_norm"] > 1.25*eta_norm0: 
+    if user_data["eta_norm"] > 1.25*eta_norm0 and model == "Galerkin": 
       failed=True
       break
   
     dim2B = dim1B*dim1B
-    xs = Ur @ ys
-    E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
+    E, f, Gamma = [0,0,0]
+    if model == "Galerkin":
+      xs = Ur @ ys
+      E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
+    elif model == "SINDy":
+      E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
+    elif model == "OpInf":
+      xs = basis.decompress(ys)
+      E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
 
     DE2 = calc_mbpt2(f, Gamma, user_data)
     DE3 = calc_mbpt3(f, Gamma, user_data)
@@ -357,8 +398,8 @@ def main():
     "Gammaod":     GammaList
   })
   
-  output.to_csv(outPath+f'imsrg-white_d{delta}_g{g}_b{b}_N4_pod_rank{r}.csv')
-  step_output.to_csv(outPath+f'imsrg-white_d{delta}_g{g}_b{b}_N4_pod_rank{r}_fullflow.csv')
+  output.to_csv(outPath+f'imsrg-{model}_d{delta}_g{g}_b{b}_N4_pod_rank{r}.csv')
+  step_output.to_csv(outPath+f'imsrg-{model}_d{delta}_g{g}_b{b}_N4_pod_rank{r}_fullflow.csv')
 
 #    solver.integrate(solver.t + ds)
 
