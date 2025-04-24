@@ -182,7 +182,7 @@ def make_design(y0, sfinal, ds, user_data):
   if user_data["model"] != "Galerkin":
     dys_list.append(solver.f(solver.t, solver.y, user_data))
 
-  print("Constructing list of state vectors")
+  print("Constructing list of snapshots")
   print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
       "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
       "||eta||", "||fod||", "||Gammaod||"))
@@ -237,17 +237,19 @@ def Galerkin_Projection(ys_list):
 # SINDy Matrix Calculations
 #-----------------------------------------------------------------------------------
 def SINDy_model(ys_list, dys_list, ds):
-  X = np.vstack(ys_list)
-  X_dot = np.vstack(dys_list)
-  r = 3 # Degree of SINDy polynomial expansion
+  reduced, _ = Galerkin_Projection(ys_list)
+  X     = np.vstack(ys_list) @ reduced
+  X_dot = np.vstack(dys_list) @ reduced
+  
+  r = 2 # Degree of SINDy polynomial expansion
   # Using PySINDy for calculations
-  # Least squares for optimization, 5th degree polynomial library
+  # Least squares for optimization, 3rd degree polynomial library
   model = ps.SINDy(
-    optimizer = ps.STLSQ(threshold=0.01, alpha = 0.5, verbose=True),
+    optimizer = ps.STLSQ(threshold=1e-10, alpha = 0.5, verbose=True),
     feature_library = ps.PolynomialLibrary(degree=r)
   )
   model.fit(X, t=ds, x_dot = X_dot)
-  return model, r
+  return model, r, reduced
 
 #-----------------------------------------------------------------------------------
 # Operator Inference Calculations
@@ -257,7 +259,7 @@ def OpInf_model(ys_list, dys_list):
   Xdot = np.vstack(dys_list).transpose()
 
   # Use OpInf for calculations - construct basis (similar to Galerkin projection)
-  basis = opinf.basis.PODBasis(svdval_threshold=1e-35)
+  basis = opinf.basis.PODBasis(svdval_threshold=1e-12)
   basis.fit(X)
   r = basis.shape[1]
 
@@ -371,17 +373,18 @@ def main():
   # Construct POD matrix - integration happens in make_design()
   ys_list, dys_list = make_design(y0, sPod, ds_pod, user_data)
   Ur = 0
+  reduced = 0
 
   # Make ROM matrix
   print(f"Constructing ROM using {model} model type.")
   if model == "Galerkin":
     Ur, r = Galerkin_Projection(ys_list)
   elif model == "SINDy":
-    Ur, r = SINDy_model(ys_list, dys_list, ds_pod)
+    Ur, r, reduced = SINDy_model(ys_list, dys_list, ds_pod)
   elif model == "OpInf":
     basis, mod, r = OpInf_model(ys_list, dys_list)
   else:
-    print("Model type not recognized. Please use Galerkin, SINDy, or PGLS.")
+    print("Model type not recognized. Please use Galerkin, SINDy, or OpInf.")
     return
 
   # Get memory use from making POD
@@ -390,12 +393,15 @@ def main():
   pod_memkb_peak = pod_memkb_peak/1024.
   tracemalloc.stop()
   
-  print(f"RAM Use:{pod_memkb_peak} kb\nTime Spent: {total_time} s")
+  print(f"RAM Use: {pod_memkb_peak} kb\nTime Spent: {total_time} s")
   if model == "Galerkin":
     np.savetxt(outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.txt", Ur)
   elif model == "SINDy":
-    with open(outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.pkl", 'wb') as f:
+    sPath = outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/"
+    os.mkdir(sPath)
+    with open(sPath+f"model.pkl", 'wb') as f:
       pickle.dump(Ur, f)
+    np.savetxt(sPath+"reducer.txt", reduced)
   elif model == "OpInf":
     oiPath = outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4"
     os.mkdir(oiPath)

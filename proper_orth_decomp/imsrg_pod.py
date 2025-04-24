@@ -92,7 +92,7 @@ def Galerkin_wrapper(t, y, user_data):
   
   return dy
 
-def SINDy_derivative(t, y, Ur):
+def SINDy_derivative(t, y, Ur, reducer):
   return Ur.predict(y)
 
 def oi_derivative(t, x, Ur):
@@ -257,7 +257,7 @@ def main():
     "dE":         0.0,                # and main routine
 
 
-    "calc_eta":   eta_white,          # specify the generator (function object)
+    "calc_eta":   eta_imtime,          # specify the generator (function object)
     "calc_rhs":   commutator_2b,      # specify the right-hand side and truncation
     "Ur":         0.                  # Container for the ROM matrix
   }
@@ -286,11 +286,14 @@ def main():
   # Start the clock
   time_start = time.perf_counter()
 
-  # integrate reduced flow equations 
+  # Possible flow parameters
   solver = 0.
   a0 = 0.
   basis = 0.
   Ur = 0.
+  reducer = 0.
+
+  # integrate reduced flow equations 
   if model == "Galerkin":
     # Get initial a0, Ur_inv
     Ur = np.loadtxt(ROMPath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.txt")
@@ -305,18 +308,22 @@ def main():
 
   elif model == "SINDy": 
     # Load saved model
-    with open(ROMPath + f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4.pkl", 'rb') as f:
+    sPath = ROMPath+f"SINDy_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/"
+    with open(sPath + "model.pkl", 'rb') as f:
       Ur = pickle.load(f)
+    reducer = np.loadtxt(sPath+"reducer.txt")
     # construct rhs function using the SINDy form    
     solver = ode(SINDy_derivative, jac=None)
     solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
-    solver.set_f_params(Ur)
-    solver.set_initial_value(y0, 0.)
+    solver.set_f_params(Ur, reducer)
+    a0 = (reducer.transpose() @ y0).transpose()
+    solver.set_initial_value(a0, 0.)
   
   elif model == "OpInf":
     # Load saved model
-    basis = opinf.basis.PODBasis.load(ROMPath+f"OpInf_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/basis.h5")
-    Ur = opinf.models.ContinuousModel.load(ROMPath+f"OpInf_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/model.h5")
+    modelPath = f"OpInf_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/"
+    basis = opinf.basis.PODBasis.load(ROMPath+modelPath+"basis.h5")
+    Ur = opinf.models.ContinuousModel.load(ROMPath+modelPath+"model.h5")
     # construct rhs function using the OpInf form
     solver = ode(oi_derivative, jac=None)
     solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
@@ -350,7 +357,8 @@ def main():
       xs = Ur @ ys
       E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
     elif model == "SINDy":
-      E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
+      xs = reducer @ ys
+      E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
     elif model == "OpInf":
       xs = basis.decompress(ys)
       E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
