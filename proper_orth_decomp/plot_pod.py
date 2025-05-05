@@ -64,27 +64,26 @@ def main():
 
     # Files to pull
     dPath      = "/mnt/c/Users/aryan/Documents/MSU_FRIB/IMSRG/proper_orth_decomp/"
-    filePath   = dPath + f"model_comparison_s{podS}/"
+    filePath   = dPath + f"imtime_results/"
     outPath    = dPath + "plots/"
+    fileString_b = f"imsrg-imtime_d{delta}_g{g}_b{b}_N4_"
     fileString_g = f"imsrg-Galerkin_d{delta}_g{g}_b{b}_N4_"
-    fileString = f"imsrg-OpInf_d{delta}_g{g}_b{b}_N4_"
+    fileString = f"imsrg-OpInf_imtime_d{delta}_g{g}_b{b}_N4_"
+    fileString_s = f"imsrg-SINDy_d{delta}_g{g}_b{b}_N4_"
     
     # List of each benchmark
-    flows = ["pod_rank15", "pod_rank11", "pod_rank20", "pod_rank51"]
-    labels = ["Galerkin", "OpInf Rank 11", "OpInf Rank 20", "OpInf Rank 51"]
+    flows = ["ev1", "pod_rank15", "pod_rank11", "pod_rank2"]
+    labels = ["Full Model", "Galerkin", "OpInf Rank 11", "SINDy Rank 15"]
     colorList = ['C0', 'C1', 'C2', 'C3']
     indexList = range(len(flows))
 
-    """
     dataList = []
     dataList.append(pd.read_csv(filePath+fileString_b+flows[0]+"_fullflow.csv", index_col=0))
     dataList.append(pd.read_csv(filePath+fileString_g+flows[1]+"_fullflow.csv", index_col=0))
-    dataList.append(pd.read_csv(filePath+fileString+flows[2]+"_fullflow.csv", index_col=0))
-    dataList.append(pd.read_csv(filePath+fileString+flows[3]+"_fullflow.csv", index_col=0))      
-    dataList.append(pd.read_csv(filePath+fileString+flows[4]+"_fullflow.csv", index_col=0))
-    """      
+    dataList.append(pd.read_csv(filePath+fileString+flows[2]+"_fullflow.csv", index_col=0))  
+    dataList.append(pd.read_csv(filePath+fileString_s+flows[3]+"_fullflow.csv", index_col=0))  
 
-    
+    '''
     # Load datafiles as a list of Pandas Dataframes
     dataList = []
     dataList.append(pd.read_csv(filePath+fileString_g+flows[0]+"_fullflow.csv", index_col=0))
@@ -92,16 +91,16 @@ def main():
         if i+1 == len(indexList):
             continue
         dataList.append(pd.read_csv(filePath+fileString+flows[i+1]+"_fullflow.csv", index_col=0))
-    
+    '''
 
     # Plot energy vs. s
-    plot_flow(1, indexList, dataList, colorList, labels, "GS Energy", f"GS Energy vs. Time - b={b}, POD s={podS}", outPath+f"GSEnergy_b{b}_s{podS}_OpInf.jpg")
+    plot_flow(1, indexList, dataList, colorList, labels, "GS Energy", f"GS Energy vs. Time - b={b}, POD s={podS}", outPath+f"GSEnergy_b{b}_s{podS}_SINDy.jpg")
 
     # Plot GammaOD vs. s
-    plot_flow(2, indexList, dataList, colorList, labels, "Gamma OD", f"GammaOD vs. Time - b={b}, POD s={podS}", outPath+f"GammaOD_b{b}_s{podS}_OpInf.jpg")
+    plot_flow(2, indexList, dataList, colorList, labels, "Gamma OD", f"GammaOD vs. Time - b={b}, POD s={podS}", outPath+f"GammaOD_b{b}_s{podS}_SINDy.jpg")
 
     # Plot difference in original vs. final energy for each rank
-    plot_difference(indexList, dataList, colorList, labels, "Energy Difference", f"Energy Difference vs. Time - b={b}", outPath+f"Ediff_b{b}_s{podS}_OpInf.jpg")
+    plot_difference(indexList, dataList, colorList, labels, "Energy Difference", f"Energy Difference vs. Time - b={b}", outPath+f"Ediff_b{b}_s{podS}_SINDy.jpg")
 
 #------------------------------------------------------------------------------
 # make executable

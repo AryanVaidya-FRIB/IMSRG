@@ -351,7 +351,7 @@ def main():
     "eta_norm":   0.0,                # variables for sharing data between ODE solver
     "dE":         0.0,                # and main routine
 
-    "calc_eta":   eta_white,          # specify the generator (function object)
+    "calc_eta":   eta_imtime,          # specify the generator (function object)
     "calc_rhs":   commutator_2b,      # specify the right-hand side and truncation
     "model":      model               # projection model to construct ROM
   }

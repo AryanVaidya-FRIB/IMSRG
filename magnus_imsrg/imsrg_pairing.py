@@ -17,6 +17,7 @@
 
 import numpy as np
 import pandas as pd
+import pickle
 from numpy import array, dot, diag, reshape, transpose
 from scipy.linalg import eigvalsh
 from scipy.integrate import odeint, ode
@@ -258,11 +259,12 @@ def main():
   solver.set_initial_value(y0, 0.)
 
   sfinal = 50
-  ds = 0.1
+  ds = 0.01
 
   sList = []
   EList = []
   GammaList = []
+  fullSet = []
 
   print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
     "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
@@ -274,7 +276,8 @@ def main():
   failed = False
 
   while solver.successful() and solver.t < sfinal:
-    ys = solver.integrate(sfinal, step=True)
+    ys = solver.integrate(solver.t+ds)
+    fullSet.append(ys)
   
     if user_data["eta_norm"] > 1.25*eta_norm0: 
       failed=True
@@ -325,8 +328,11 @@ def main():
     "Gammaod":     GammaList
   })
   
-  output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1.csv')
-  step_output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1_fullflow.csv')
+#  output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1.csv')
+#  step_output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1_fullflow.csv')
+
+  with open('allHs.pkl', 'wb') as fp:
+      pickle.dump(fullSet, fp)
 
 #    solver.integrate(solver.t + ds)
 
