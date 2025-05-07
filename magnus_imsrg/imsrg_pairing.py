@@ -276,8 +276,8 @@ def main():
   failed = False
 
   while solver.successful() and solver.t < sfinal:
-    ys = solver.integrate(solver.t+ds)
-    fullSet.append(ys)
+    ys = solver.integrate(sfinal, step=True)
+#    fullSet.append(ys)
   
     if user_data["eta_norm"] > 1.25*eta_norm0: 
       failed=True
@@ -328,11 +328,11 @@ def main():
     "Gammaod":     GammaList
   })
   
-#  output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1.csv')
-#  step_output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1_fullflow.csv')
+  output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1.csv')
+  step_output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1_fullflow.csv')
 
-  with open('allHs.pkl', 'wb') as fp:
-      pickle.dump(fullSet, fp)
+#  with open('allHs.pkl', 'wb') as fp:
+#      pickle.dump(fullSet, fp)
 
 #    solver.integrate(solver.t + ds)
 

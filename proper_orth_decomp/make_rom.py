@@ -254,21 +254,22 @@ def SINDy_model(ys_list, dys_list, ds):
 #-----------------------------------------------------------------------------------
 # Operator Inference Calculations
 #-----------------------------------------------------------------------------------
-def OpInf_model(ys_list, dys_list):
+def OpInf_model(ys_list, dys_list, params):
   X     = np.vstack(ys_list).transpose()
   Xdot = np.vstack(dys_list).transpose()
 
   # Use OpInf for calculations - construct basis (similar to Galerkin projection)
-  basis = opinf.basis.PODBasis(svdval_threshold=1e-12)
+  basis = opinf.basis.PODBasis(svdval_threshold=1e-10)
   basis.fit(X)
   r = basis.shape[1]
 
   # Fit X, Xdot to quadratic order
-  X_    = basis.compress(X)
-  Xdot_ = basis.compress(Xdot)
+  X_      = basis.compress(X)
+  Xdot_   = basis.compress(Xdot)
+  params_ = np.tile(params, (r,1))
   model = opinf.models.ContinuousModel(
       operators = "cAH",
-      solver=opinf.lstsq.L2Solver(regularizer=1e-8),
+      solver=opinf.lstsq.L2Solver(regularizer=1e-8)
       ).fit(states = X_, ddts = Xdot_)
   
   return basis, model, r
@@ -382,7 +383,7 @@ def main():
   elif model == "SINDy":
     Ur, r, reduced = SINDy_model(ys_list, dys_list, ds_pod)
   elif model == "OpInf":
-    basis, mod, r = OpInf_model(ys_list, dys_list)
+    basis, mod, r = OpInf_model(ys_list, dys_list, [g, b])
   else:
     print("Model type not recognized. Please use Galerkin, SINDy, or OpInf.")
     return
@@ -403,7 +404,7 @@ def main():
       pickle.dump(Ur, f)
     np.savetxt(sPath+"reducer.txt", reduced)
   elif model == "OpInf":
-    oiPath = outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4"
+    oiPath = outpath+f"{model}_param_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4"
     os.mkdir(oiPath)
     basis.save(oiPath+"/basis.h5")
     mod.save(oiPath+"/model.h5")

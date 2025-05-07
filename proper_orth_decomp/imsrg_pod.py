@@ -99,6 +99,9 @@ def SINDy_derivative(t, y, Ur, reducer):
 def oi_derivative(t, x, Ur):
   return Ur.rhs(t = t, state = x)
 
+def oi_param_derivative(t, x, Ur, params):
+  return Ur.rhs(t=t, parameter=params, state=x)
+
 #-----------------------------------------------------------------------------------
 # pairing Hamiltonian
 #-----------------------------------------------------------------------------------
@@ -331,6 +334,17 @@ def main():
     solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
     solver.set_f_params(Ur)
     solver.set_initial_value(basis.compress(y0), 0.)
+
+  elif model == "OpInf_param":
+    # Load saved model
+    modelPath = f"OpInf_Parametric_s{sPod}_rank{r}_N4/"
+    basis = opinf.basis.PODBasis.load(ROMPath+modelPath+"basis.h5")
+    Ur = opinf.models.InterpContinuousModel.load(ROMPath+modelPath+"model.h5")
+    # construct rhs function using the OpInf parametric form
+    solver = ode(oi_param_derivative, jac=None)
+    solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
+    solver.set_f_params(Ur, [g,b])
+    solver.set_initial_value(basis.compress(y0), 0.)
   else:
     print("Model not recognized. Please check documentation for approved models.")
 
@@ -347,7 +361,7 @@ def main():
   failed = False
 
   while solver.successful() and solver.t < sfinal:
-    ys = solver.integrate(solver.t+ds)
+    ys = solver.integrate(sfinal, step=True)
   
     if user_data["eta_norm"] > 1.25*eta_norm0 and model == "Galerkin": 
       failed=True
@@ -361,11 +375,11 @@ def main():
     elif model == "SINDy":
       xs = reducer @ ys
       E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
-    elif model == "OpInf":
+    elif model == "OpInf" or model == "OpInf_param":
       xs = basis.decompress(ys)
       E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
 
-    fullSet.append(xs)
+#    fullSet.append(xs)
 
     DE2 = calc_mbpt2(f, Gamma, user_data)
     DE3 = calc_mbpt3(f, Gamma, user_data)
@@ -410,11 +424,11 @@ def main():
     "Gammaod":     GammaList
   })
   
-  #output.to_csv(outPath+f'imsrg-{model}_d{delta}_g{g}_b{b}_N4_pod_rank{r}.csv')
-  #step_output.to_csv(outPath+f'imsrg-{model}_d{delta}_g{g}_b{b}_N4_pod_rank{r}_fullflow.csv')
+  output.to_csv(outPath+f'imsrg-{model}_d{delta}_g{g}_b{b}_N4_pod_rank{r}.csv')
+  step_output.to_csv(outPath+f'imsrg-{model}_d{delta}_g{g}_b{b}_N4_pod_rank{r}_fullflow.csv')
 
-  with open(outPath+'allHRoms.pkl', 'wb') as fp:
-    pickle.dump(fullSet, fp)
+#  with open(outPath+'allHRoms.pkl', 'wb') as fp:
+#    pickle.dump(fullSet, fp)
 
 #    solver.integrate(solver.t + ds)
 
