@@ -70,7 +70,8 @@ def derivative_wrapper(t, y, user_data):
   calc_rhs  = user_data["calc_rhs"]
 
   # extract operator pieces from solution vector
-  E, f, Gamma = get_operator_from_y(y, dim1B, dim2B)
+  E, f, Gamma = get_operator_from_y(y[:4161], dim1B, dim2B)
+  S, S1, S2 = get_operator_from_y(y[4161:], dim1B, dim2B)
 
 
   # calculate the generator
@@ -78,9 +79,13 @@ def derivative_wrapper(t, y, user_data):
 
   # calculate the right-hand side
   dE, df, dGamma = calc_rhs(eta1B, eta2B, f, Gamma, user_data)
+  dS, dS1, dS2   = calc_rhs(eta1B, eta2B, S1, S2, user_data)
 
   # convert derivatives into linear array
   dy   = np.append([dE], np.append(reshape(df, -1), reshape(dGamma, -1)))
+
+  # Append spin operators
+  dy = np.append(dy, np.append([dS], np.append(reshape(dS1, -1), reshape(dS2, -1))))
 
   # share data
   user_data["dE"] = dE
@@ -130,6 +135,34 @@ def pairing_hamiltonian(delta, g, b, user_data):
           H2B[idx2B[(l,k)],idx2B[(j,i)]] = -0.5*b
   
   return H1B, H2B
+
+def spin_operator(num_levels, user_data):
+    pauli_matrix = np.array([[1, 0, 0, 0],
+                             [0, -1, 2, 0],
+                             [0, 2, -1, 0],
+                             [0, 0, 0, 1]])
+
+    idx2B = user_data["idx2B"]
+    bas2B = user_data["bas2B"]
+    one_body = np.diag([3/4] * num_levels)
+
+    two_body = np.zeros([num_levels**2, num_levels**2])
+
+    for (p, q) in bas2B:
+        for (r, s) in bas2B:
+            pref1 = 0
+            if (p // 2 == r // 2):
+                if (q // 2 == s // 2):
+                    pref1 = pauli_matrix[2 * (p % 2) + q % 2, 2 * (r % 2) + s % 2]
+            pref2 = 0
+            if (p // 2 == s // 2):
+                if (q // 2 == r // 2):
+                    pref2 = pauli_matrix[2 * (p % 2) + q % 2, 2 * (s % 2) + r % 2]
+            pref = -1 / 2 * (pref1 - pref2)
+
+            two_body[idx2B[(p, q)], idx2B[(r, s)]] = pref
+
+    return one_body, two_body
 
 #-----------------------------------------------------------------------------------
 # normal-ordered pairing Hamiltonian
@@ -234,8 +267,10 @@ def main():
     "dE":         0.0,                # and main routine
 
 
-    "calc_eta":   eta_imtime,          # specify the generator (function object)
-    "calc_rhs":   commutator_2b         # specify the right-hand side and truncation
+    "calc_eta":   eta_white,          # specify the generator (function object)
+    "calc_rhs":   commutator_2b,         # specify the right-hand side and truncation
+
+    "Delta":      None                # energy denominator stored for quadratic White
   }
 
   # Define starting RAM use
@@ -246,11 +281,17 @@ def main():
 
   # set up initial Hamiltonian
   H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
+  S1B, S2B = spin_operator(dim1B, user_data)
 
   E, f, Gamma = normal_order(H1B, H2B, user_data) 
+  S, S1, S2 = normal_order(S1B, S2B, user_data)
 
   # reshape Hamiltonian into a linear array (initial ODE vector)
   y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
+
+  # Append spin operator information
+  y0   = np.append(y0, np.append([S],np.append(reshape(S1, -1), reshape(S2, -1))))
+  print(y0.shape)
 
   # integrate flow equations 
   solver = ode(derivative_wrapper,jac=None)
@@ -266,11 +307,11 @@ def main():
   GammaList = []
   fullSet = []
 
-  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
+  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s    %-14s    %-14s"%(
     "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-    "||eta||", "||fod||", "||Gammaod||"))
+    "||eta||", "||fod||", "||Gammaod||", "||S1od||", "||S2od||"))
   # print "-----------------------------------------------------------------------------------------------------------------"
-  print("-" * 148)
+  print("-" * 200)
   
   eta_norm0 = 1.0e10
   failed = False
@@ -284,7 +325,8 @@ def main():
       break
   
     dim2B = dim1B*dim1B
-    E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
+    E, f, Gamma = get_operator_from_y(ys[:4161], dim1B, dim2B)
+    S, S1, S2 = get_operator_from_y(ys[4161:], dim1B, dim2B)
 
     DE2 = calc_mbpt2(f, Gamma, user_data)
     DE3 = calc_mbpt3(f, Gamma, user_data)
@@ -292,8 +334,11 @@ def main():
     norm_fod     = calc_fod_norm(f, user_data)
     norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
 
-    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
+    norm_S1od    = calc_fod_norm(S1, user_data)
+    norm_S2od    = calc_Gammaod_norm(S2, user_data)
+
+    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f    %14.8f   %14.8f"%(
+      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod, norm_S1od, norm_S2od))
     if abs(DE2/E) < 1e-6: break # 1e-9 before
     sList.append(solver.t)
     EList.append(E)

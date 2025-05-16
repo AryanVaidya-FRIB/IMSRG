@@ -145,6 +145,34 @@ def pairing_hamiltonian(delta, g, b, user_data):
   
   return H1B, H2B
 
+def spin_operator(num_levels, user_data):
+    pauli_matrix = np.array([[1, 0, 0, 0],
+                             [0, -1, 2, 0],
+                             [0, 2, -1, 0],
+                             [0, 0, 0, 1]])
+
+    idx2B = user_data["idx2B"]
+    bas2B = user_data["bas2B"]
+    one_body = np.diag([3/4] * num_levels)
+
+    two_body = np.zeros([num_levels**2, num_levels**2])
+
+    for (p, q) in bas2B:
+        for (r, s) in bas2B:
+            pref1 = 0
+            if (p // 2 == r // 2):
+                if (q // 2 == s // 2):
+                    pref1 = pauli_matrix[2 * (p % 2) + q % 2, 2 * (r % 2) + s % 2]
+            pref2 = 0
+            if (p // 2 == s // 2):
+                if (q // 2 == r // 2):
+                    pref2 = pauli_matrix[2 * (p % 2) + q % 2, 2 * (s % 2) + r % 2]
+            pref = -1 / 2 * (pref1 - pref2)
+
+            two_body[idx2B[(p, q)], idx2B[(r, s)]] = pref
+
+    return one_body, two_body
+
 #-----------------------------------------------------------------------------------
 # normal-ordered pairing Hamiltonian
 #-----------------------------------------------------------------------------------
@@ -199,7 +227,6 @@ def main():
 
   # Values to control POD flow
   particles  = 4
-  sPod       = 0.5
 
   # Construct output arrays
   glist = []
@@ -261,16 +288,21 @@ def main():
     "dE":         0.0,                # and main routine
 
 
-    "calc_eta":   eta_imtime,          # specify the generator (function object)
+    "calc_eta":   eta_white,     # specify the generator (function object)
     "calc_rhs":   commutator_2b,      # specify the right-hand side and truncation
     "Ur":         0.                  # Container for the ROM matrix
+
+  #  "Delta":      None                # Container for energy denominator (only if using quadratic White)
   }
 
   # Define starting RAM use
   tracemalloc.start()
 
   # set up initial Hamiltonian
-  H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
+  #H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
+
+  # set up initial Spin operator
+  H1B, H2B = pairing_hamiltonian(dim1B, user_data)
 
   E, f, Gamma = normal_order(H1B, H2B, user_data) 
 
@@ -326,8 +358,8 @@ def main():
   
   elif model == "OpInf":
     # Load saved model
-    modelPath = f"OpInf_imtime_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/"
-    basis = opinf.basis.PODBasis.load(ROMPath+modelPath+"basis.h5")
+    modelPath = f"OpInf_white_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/"
+    basis = opinf.basis.PODBasis.load(ROMPath+modelPath+"basis_spin.h5")
     Ur = opinf.models.ContinuousModel.load(ROMPath+modelPath+"model.h5")
     # construct rhs function using the OpInf form
     solver = ode(oi_derivative, jac=None)
@@ -352,8 +384,8 @@ def main():
 
   print(f"Run using {model} ROM")
   print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
-    "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-    "||eta||", "||fod||", "||Gammaod||"))
+    "s", "S^2" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
+    "||eta||", "||S1od||", "||S2od||"))
   # print "-----------------------------------------------------------------------------------------------------------------"
   print("-" * 148)
   
