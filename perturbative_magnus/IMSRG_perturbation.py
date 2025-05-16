@@ -332,11 +332,11 @@ def main():
   # grab delta and g from the command line
   delta      = 1.0 #float(argv[1])
   g          = float(argv[1])
-  b          = 0. #float(argv[3])
+  b          = 0.5 #float(argv[3])
 
   # Initialize starting setup
   use_second_order = False
-  store_operators  = True
+  store_operators  = False
 
   particles  = 4
   max_steps = 30

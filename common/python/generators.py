@@ -137,6 +137,90 @@ def eta_white(f, Gamma, user_data):
 
   return eta1B, eta2B
 
+def eta_white_quad(f, Gamma, user_data):
+  dim1B     = user_data["dim1B"]
+  particles = user_data["particles"]
+  holes     = user_data["holes"]
+  idx2B     = user_data["idx2B"]
+
+  eta1B = np.zeros_like(f)
+  eta2B = np.zeros_like(Gamma)
+
+  if user_data["Delta"] == None:
+    print("Fixing energy denominator.")
+    # Get denominator for first term to construct the energy denominator at s=0
+    Delta1B = np.zeros_like(f)
+    Delta2B = np.zeros_like(Gamma)
+    for a in particles:
+      for i in holes:
+        Delta1B[a,i] = f[a,a] - f[i,i] + Gamma[idx2B[(a,i)], idx2B[(a,i)]]
+        if abs(Delta1B[a,i])<1.0e-10:
+          val = 0.25 * pi * np.sign(f[a,i]) * np.sign(Delta1B[a,i])
+        else:
+          val = f[a,i]/Delta1B[a,i]
+
+        eta1B[a, i] =  val
+        eta1B[i, a] = -val 
+    for a in particles:
+      for b in particles:
+        for i in holes:
+          for j in holes:
+            Delta2B[idx2B[(a,b)], idx2B[(i,j)]] = ( 
+              f[a,a] + f[b,b] - f[i,i] - f[j,j]  
+              + Gamma[idx2B[(a,b)],idx2B[(a,b)]] 
+              + Gamma[idx2B[(i,j)],idx2B[(i,j)]]
+              - Gamma[idx2B[(a,i)],idx2B[(a,i)]] 
+              - Gamma[idx2B[(a,j)],idx2B[(a,j)]] 
+              - Gamma[idx2B[(b,i)],idx2B[(b,i)]] 
+              - Gamma[idx2B[(b,j)],idx2B[(b,j)]] 
+            )
+            if abs(Delta2B[idx2B[(a,b)], idx2B[(i,j)]])<1.0e-10:
+              val = 0.25 * pi * np.sign(Gamma[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(Delta2B[idx2B[(a,b)], idx2B[(i,j)]])
+            else:
+              val = Gamma[idx2B[(a,b)], idx2B[(i,j)]] / Delta2B[idx2B[(a,b)], idx2B[(i,j)]]
+
+            eta2B[idx2B[(a,b)],idx2B[(i,j)]] = val
+            eta2B[idx2B[(i,j)],idx2B[(a,b)]] = -val
+    user_data["Delta"] = [Delta1B, Delta2B]
+
+  else:
+    # Calculate eta using Delta(0)
+    Delta1B, Delta2B = user_data["Delta"]
+    # 1-body part of generator
+    for a in particles:
+      for i in holes:
+        Delta1B[a,i] = f[a,a] - f[i,i] + Gamma[idx2B[(a,i)], idx2B[(a,i)]]
+        if abs(Delta1B[a,i])<1.0e-10:
+          val = 0.25 * pi * np.sign(f[a,i]) * np.sign(Delta1B[a,i])
+        else:
+          val = f[a,i]/Delta1B[a,i]
+
+        eta1B[a, i] =  val
+        eta1B[i, a] = -val 
+    # 2-body part of generator
+    for a in particles:
+      for b in particles:
+        for i in holes:
+          for j in holes:
+            Delta2B[idx2B[(a,b)], idx2B[(i,j)]] = ( 
+              f[a,a] + f[b,b] - f[i,i] - f[j,j]  
+              + Gamma[idx2B[(a,b)],idx2B[(a,b)]] 
+              + Gamma[idx2B[(i,j)],idx2B[(i,j)]]
+              - Gamma[idx2B[(a,i)],idx2B[(a,i)]] 
+              - Gamma[idx2B[(a,j)],idx2B[(a,j)]] 
+              - Gamma[idx2B[(b,i)],idx2B[(b,i)]] 
+              - Gamma[idx2B[(b,j)],idx2B[(b,j)]] 
+            )
+            if abs(Delta2B[idx2B[(a,b)], idx2B[(i,j)]])<1.0e-10:
+              val = 0.25 * pi * np.sign(Gamma[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(Delta2B[idx2B[(a,b)], idx2B[(i,j)]])
+            else:
+              val = Gamma[idx2B[(a,b)], idx2B[(i,j)]] / Delta2B[idx2B[(a,b)], idx2B[(i,j)]]
+
+            eta2B[idx2B[(a,b)],idx2B[(i,j)]] = val
+            eta2B[idx2B[(i,j)],idx2B[(a,b)]] = -val
+
+  return eta1B, eta2B
+
 
 def eta_white_mp(f, Gamma, user_data):
   dim1B     = user_data["dim1B"]

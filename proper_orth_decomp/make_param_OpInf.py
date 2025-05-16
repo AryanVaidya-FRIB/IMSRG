@@ -230,9 +230,12 @@ def OpInf_model(ys_list, dys_list, params):
     Xs.append(np.vstack(flow).transpose())
     dXs.append(np.vstack(dflow).transpose())
 
+  X = np.hstack(Xs)
+  print(X.shape)
+
   # Use OpInf for calculations - construct basis (similar to Galerkin projection)
-  basis = opinf.basis.PODBasis(svdval_threshold=1e-15, max_vectors=25)
-  basis.fit(Xs)
+  basis = opinf.basis.PODBasis(svdval_threshold=1e-10)
+  basis.fit(X)
   print(basis)
   r = basis.shape[1]
 
@@ -255,8 +258,8 @@ def OpInf_model(ys_list, dys_list, params):
 def main():
   # grab delta and g from the command line - edited for batch compatibility
   delta      = 1
-  g          = [0.25, 0.5]
-  b          = [0., 0.5]
+  g          = [-0.5, 0.1, 0.5]
+  b          = [-0.5, 0.1, 0.5]
   model      = "OpInf"
 
   # Number of particles
@@ -349,6 +352,8 @@ def main():
   for g_val in g:
     for b_val in b:
       # set up initial Hamiltonian
+      if g_val == 0 and b_val == 0:
+        continue
       print(f"Now creating snapshots for g={g_val}, b={b_val}")
       H1B, H2B = pairing_hamiltonian(delta, g_val, b_val, user_data)
       E, f, Gamma = normal_order(H1B, H2B, user_data) 
