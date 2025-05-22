@@ -20,6 +20,7 @@ import opinf
 from numpy import array, dot, diag, reshape, transpose
 from scipy.linalg import eigvalsh, svd
 from scipy.integrate import odeint, ode
+from sklearn.decomposition import IncrementalPCA
 from math import pi
 import pickle
 
@@ -165,92 +166,125 @@ def derivative_wrapper(t, y, user_data):
   
   return dy
 
-#-----------------------------------------------------------------------------------
-# Design Matrix Constructor
-#-----------------------------------------------------------------------------------
-def make_design(y0, sfinal, ds, user_data):
-  # Generates list of Hamiltonians for early times to construct POD
-  dim1B = user_data["dim1B"]
+#------------------------------------------------------------------------------
+# Streaming operations
+#------------------------------------------------------------------------------
+def incremental_svd(ys, rank_data, tol=1e-15):
+  U      = rank_data["U"]
+  S      = rank_data["S"]
+  Vh     = rank_data["V"].T
+  r      = rank_data["r"]
+  ys     = np.array(ys).reshape(-1,1)
+  W      = np.identity(ys.shape[0])
 
-  ys_list = [y0]
-  dys_list = []
-    # integrate flow equations 
-  solver = ode(derivative_wrapper,jac=None)
-  solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
-  solver.set_f_params(user_data)
-  solver.set_initial_value(y0, 0.)
-  if user_data["model"] != "Galerkin":
-    dys_list.append(solver.f(solver.t, solver.y, user_data))
 
-  print("Constructing list of snapshots")
-  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
-      "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-      "||eta||", "||fod||", "||Gammaod||"))
-  # print "-----------------------------------------------------------------------------------------------------------------"
-  print("-" * 148)
+  d = U.T @ W @ ys
+  if not np.shape(d):
+    d *= np.eye(1, 1)
+  e = ys - U @ d
+  p = np.sqrt(e.T @ W @ e) * np.eye(1, 1)
+
+  if p < tol:
+    p = np.zeros((1, 1))
+  else:
+    e = e / p[0, 0].item()
+
+  k = np.shape(S)[0] if np.shape(S) else 1
+  Y = np.vstack((np.hstack((S, d)), np.hstack((np.zeros((1, k)), p))))
+  Uy, Sy, Vhy = np.linalg.svd(Y, full_matrices=False, compute_uv=True)
+  Sy = np.diag(Sy)
+
+  l = np.shape(Vh)[0]
+  if p < tol:
+    U = U @ Uy[:k, :k]
+    S = Sy[:k, :k]
+    Vh = np.vstack((np.hstack((Vh, np.zeros((l, 1)))), np.hstack(
+        (np.zeros((1, k)), np.eye(1))))) @ Vhy[:, :k]
+  else:
+    U = np.hstack((U, e)) @ Uy
+    S = Sy
+    Vh = np.vstack((np.hstack((Vh, np.zeros((l, 1)))),
+                np.hstack((np.zeros((1, k)), np.eye(1))))) @ Vhy
+      
+  if np.abs(U[:, -1].T @ W @ U[:, 0]) > tol:
+    k = U.shape[1]
+    for i in range(k):
+      a = U[:, i]
+      for j in range(i):
+          U[:, i] = U[:, i] - ((a.T @ W @ U[:, j]) / (U[:, j].T @ W @ U[:, j])) * U[:, j]
+      norm = np.sqrt(U[:, i].T @ W @ U[:, i])
+      U[:, i] = U[:, i] / norm
+
+  rank_data["U"] = U
+  rank_data["S"] = S
+  rank_data["V"] = Vh.T
+  print(U.shape)
+
+  return rank_data
+
+def form_phi(q):
+  # Constructs Phi matrix for RLS - constant, linear, Kronecker product
+  return np.concatenate(([1.0],q,np.kron(q,q)))
+
+def initialize_RLS(rank_data, tol=6e-1):
+#  print("Initializing RLS")
+  S     = rank_data["S"]
+  U     = rank_data["U"]
+#  print(np.diag(S))
+  r     = 6
+  Ur    = U[:,:r]
+#  print(f"Will construct a rank {r} ROM.")
+
+  rank_data["r"]  = r
+  alpha = rank_data["alpha"]
+  rank_data["m"] = 1+r+r**2
+  # Initializes rank_data for RLS fitting
+  rank_data["Ur"] = Ur
+  rank_data["w"]  = np.zeros((rank_data["r"],rank_data["m"]))
+  rank_data["P"]  = np.array([(1/alpha)*np.identity(rank_data["m"]) for _ in range(rank_data["r"])])
+#  print("Starting RLS Fitting")
+  return rank_data, True
+
+def fit_RLS(ys, dys, rank_data):
+  Ur = rank_data["Ur"]
+  P = rank_data["P"]
+  w = rank_data["w"]
+  ff = rank_data["ff"]
+  r = rank_data["r"]
+  # Current projected form
+#  print(U.shape)
+  qs  = Ur.T @ ys
+  dqs = Ur.T @ dys
+
+  # Form RLS prediction
+  phi_s = form_phi(qs).reshape(-1,1)
+
+  for i in range(r):
+    dq_i    = dqs[i]
+    P_i     = P[i]
+    w_i     = w[i]
+#    print(phi_s.shape)
+#    print(P_i.shape)
+
+    denom = ff+ phi_s.T @ P_i @ phi_s
+    K_i = ((P_i @ phi_s) / denom).reshape(-1,1)
+#   print(K_i.shape)
+    error = dq_i - w_i.T @ phi_s
+#   print(error.shape)
+#   print(w[i].shape)
+    w[i] += (K_i * error)[:,0]
+    P[i] = (P_i - K_i @ phi_s.T @ P_i) / ff
   
-  eta_norm0 = 1.0e10
-  failed = False
-
-  while solver.successful() and solver.t < sfinal:
-      ys = solver.integrate(solver.t+ds)
+#  dq_pred = (w @ phi_s).flatten()
+#  print("True dq:", dqs)
+#  print("Predicted dq:", dq_pred)
+#  print("Error:", np.linalg.norm(dqs-dq_pred))
   
-      if user_data["eta_norm"] > 1.25*eta_norm0: 
-          failed=True
-          break
-  
-      dim2B = dim1B*dim1B
-      E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
+  rank_data["w"] = w
+  rank_data["P"] = P
 
-      DE2 = calc_mbpt2(f, Gamma, user_data)
-      DE3 = calc_mbpt3(f, Gamma, user_data)
+  return rank_data
 
-      norm_fod     = calc_fod_norm(f, user_data)
-      norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
-
-      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
-      if abs(DE2/E) < 10e-8: break
-
-      eta_norm0 = user_data["eta_norm"]
-
-      ys_list.append(ys)
-      if user_data["model"] != "Galerkin":
-          dys_list.append(solver.f(solver.t+ds, ys, user_data))
-
-  return ys_list, dys_list
-
-#-----------------------------------------------------------------------------------
-# Operator Inference Calculations
-#-----------------------------------------------------------------------------------
-def OpInf_model(ys_list, dys_list, params):
-  Xs  = []
-  dXs = []
-  for flow, dflow in zip(ys_list, dys_list):
-    Xs.append(np.vstack(flow).transpose())
-    dXs.append(np.vstack(dflow).transpose())
-
-  X = np.hstack(Xs)
-  print(X.shape)
-
-  # Use OpInf for calculations - construct basis (similar to Galerkin projection)
-  basis = opinf.basis.PODBasis(svdval_threshold=1e-10)
-  basis.fit(X)
-  print(basis)
-  r = basis.shape[1]
-
-  # Fit X, Xdot to quadratic order
-  Xs_  = []
-  dXs_ = []
-  for X, Xdot in zip(Xs, dXs):
-    Xs_.append(basis.compress(X))
-    dXs_.append(basis.compress(Xdot))
-  model = opinf.models.InterpContinuousModel(
-      operators = "cAH",
-      solver=opinf.lstsq.L2Solver(regularizer=1e-8)
-      ).fit(parameters = params, states = Xs_, ddts = dXs_)
-  
-  return basis, model, r
 
 #------------------------------------------------------------------------------
 # Main program
@@ -265,10 +299,8 @@ def main():
   # Number of particles
   particles   = 4
   # Length of each POD flow
-  sPod        = 0.5
-  flow_length = 50
-  full_rank   = flow_length*(len(g)+len(b))
-  print(f"ROM will use {full_rank} snapshots maximum.")
+  sPod        = 1.0
+  flow_length = 100
 
   # IO commands
   outpath    = "/mnt/c/Users/aryan/Documents/MSU_FRIB/IMSRG/proper_orth_decomp/ROMs/"
@@ -333,7 +365,7 @@ def main():
     "eta_norm":   0.0,                # variables for sharing data between ODE solver
     "dE":         0.0,                # and main routine
 
-    "calc_eta":   eta_imtime,          # specify the generator (function object)
+    "calc_eta":   eta_white,          # specify the generator (function object)
     "calc_rhs":   commutator_2b,      # specify the right-hand side and truncation
     "model":      model               # projection model to construct ROM
   }
@@ -344,34 +376,134 @@ def main():
 
   # Get number of time steps to iterate over
   ds_pod = sPod/flow_length
-  ys_list = []
-  dys_list = []
-  params_list = []
 
   # Construct POD matrix - integration happens in make_design()
-  for g_val in g:
-    for b_val in b:
-      # set up initial Hamiltonian
-      if g_val == 0 and b_val == 0:
-        continue
-      print(f"Now creating snapshots for g={g_val}, b={b_val}")
-      H1B, H2B = pairing_hamiltonian(delta, g_val, b_val, user_data)
-      E, f, Gamma = normal_order(H1B, H2B, user_data) 
+  # set up initial Hamiltonian
+  H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
+  E, f, Gamma = normal_order(H1B, H2B, user_data) 
 
-      # reshape Hamiltonian into a linear array (initial ODE vector)
-      y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
-      ys_temp, dys_temp = make_design(y0, sPod, ds_pod, user_data)
-      print(len(ys_temp))
-      ys_list.append([ys_temp])
-      dys_list.append([dys_temp])
-      params_list.append([g_val,b_val])
-  Ur = 0
-  reduced = 0
+  # reshape Hamiltonian into a linear array (initial ODE vector)
+  y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
+  solver = ode(derivative_wrapper,jac=None)
+  solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
+  solver.set_f_params(user_data)
+  solver.set_initial_value(y0, 0.)
 
+  print("Building POD Basis")
+  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
+    "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
+    "||eta||", "||fod||", "||Gammaod||"))
+  # print "-----------------------------------------------------------------------------------------------------------------"
+  print("-" * 143)
+  
+  eta_norm0 = 1.0e10
+  failed = False
+  norm  = np.linalg.norm(y0)
+
+  # Dictionary of stored rank information
+  rank_data = {
+    "full rank":  flow_length,                        # Total number of snapshots to calculate
+    "r":          0,                                  # Maximum projected rank
+
+    "U":          (y0 / norm).reshape(-1,1),           # U in the SVD
+    "S":          np.array([[norm]]).reshape(-1,1),    # S in the SVD 
+    "V":          np.array([[1.0]]).reshape(-1,1),     # V in the SVD
+    "Ur":         0,                                   # Galerkin projection basis
+
+    "n":          len(y0),                             # Full space dimension
+    "m":          10,                                  # Proposed RLS model dimension (modified later)
+    "ff":         0.995,                               # Forgetting factor in RLS
+    "alpha":      1e-5,                                # P scaling factor
+
+    "w":          0,                                   # Model Parameter vector
+    "P":          0                                    # Inverse Correlation Matrix
+  }
+
+  have_init = False
+
+  yList = [y0]
+  dyList = []
+
+  qList  = []
+  dqList = []
+
+  while solver.successful() and solver.t < sPod:
+      ys  = solver.integrate(solver.t+ds_pod)
+      dys = solver.f(solver.t+ds_pod, ys, user_data)   
+      if solver.t < sPod/2:
+        rank_data = incremental_svd(ys, rank_data)
+        yList.append(ys)
+        dyList.append(dys)
+      
+#      if solver.t > sPod/2 and not have_init:
+#        rank_data, have_init = initialize_RLS(rank_data)
+      if solver.t > sPod/2 and not have_init:
+        break
+        r = 6
+        rank_data["r"] = r
+        rank_data["Ur"] = rank_data["U"][:,:r]
+        have_init = True
+      
+      if solver.t > sPod/2:
+        qList.append(rank_data["Ur"].T @ ys)
+        dqList.append(rank_data["Ur"].T @ dys)
+#        rank_data = fit_RLS(ys, dys, rank_data)
+      
+      if user_data["eta_norm"] > 1.25*eta_norm0: 
+          failed=True
+          break
+  
+      dim2B = dim1B*dim1B
+      E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
+
+      DE2 = calc_mbpt2(f, Gamma, user_data)
+      DE3 = calc_mbpt3(f, Gamma, user_data)
+
+      norm_fod     = calc_fod_norm(f, user_data)
+      norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
+
+      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod ))
+      if abs(DE2/E) < 1e-6: break # 1e-9 before
+
+      eta_norm0 = user_data["eta_norm"]
+
+  # Note that c = Theta[:,0], A = Theta[:,1:1+r], H = Theta[:,1+r:]
+  r = rank_data["r"]
+  Ur = rank_data["Ur"]
+  w = rank_data["w"]
+  """
+  basis = opinf.basis.LinearBasis(Ur)
+  model = opinf.models.ContinuousModel(
+    operators = [
+      opinf.operators.ConstantOperator(w[:,0]),
+      opinf.operators.LinearOperator(w[:,1:1+r]),
+      opinf.operators.QuadraticOperator(w[:,1+r:])
+    ]
+  )
+  """  
   # Make ROM matrix
   print(f"Constructing ROM using {model} model type.")
-  basis, mod, r = OpInf_model(ys_list, dys_list, params_list)
+  X_ = np.vstack(yList).T
+  Xdot_ = np.vstack(dyList).T
+  X_approx = rank_data["U"] @ rank_data["S"] @ rank_data["V"].T
+  error = np.linalg.norm(X_-X_approx)/np.linalg.norm(X_)
+  print("Reconstruction Error: ", error)
+  U, _, _ = np.linalg.svd(X_)
+  Ur = U[:,:6]
+  Ur_approx = rank_data["U"][:,:6]
+  basis = opinf.basis.PODBasis(num_vectors = 6).fit(X_).entries
+  error = np.linalg.norm(Ur @ Ur.T-basis @ basis.T)/np.linalg.norm(Ur @ Ur.T)
+  print("OpInf low order error:", error)
+  error = np.linalg.norm(Ur @ Ur.T-Ur_approx @ Ur_approx.T)/np.linalg.norm(Ur @ Ur.T)
+  print("Low order incremental error: ", error)
 
+  """
+  model = opinf.models.ContinuousModel(
+    operators = "cAH",
+    solver=opinf.lstsq.L2Solver(regularizer=1e-8)
+  ).fit(states = X_, ddts = Xdot_)
+  
   # Get memory use from making POD
   total_time = time.perf_counter()-time_start
   pod_memkb_current, pod_memkb_peak = tracemalloc.get_traced_memory()
@@ -379,11 +511,11 @@ def main():
   tracemalloc.stop()
   
   print(f"RAM Use: {pod_memkb_peak} kb\nTime Spent: {total_time} s")
-  oiPath = outpath+f"OpInf_Parametric_s{sPod}_rank{r}_N4"
+  oiPath = outpath+f"OpInf_Streaming_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4"
   os.mkdir(oiPath)
   basis.save(oiPath+"/basis.h5")
-  mod.save(oiPath+"/model.h5")
-  
+  model.save(oiPath+"/model.h5")
+  """
 #    solver.integrate(solver.t + ds)
 
 #------------------------------------------------------------------------------

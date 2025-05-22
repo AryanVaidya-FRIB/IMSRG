@@ -70,8 +70,8 @@ def derivative_wrapper(t, y, user_data):
   calc_rhs  = user_data["calc_rhs"]
 
   # extract operator pieces from solution vector
-  E, f, Gamma = get_operator_from_y(y[:4161], dim1B, dim2B)
-  S, S1, S2 = get_operator_from_y(y[4161:], dim1B, dim2B)
+  E, f, Gamma = get_operator_from_y(y, dim1B, dim2B)
+#  S, S1, S2 = get_operator_from_y(y[4161:], dim1B, dim2B)
 
 
   # calculate the generator
@@ -79,13 +79,13 @@ def derivative_wrapper(t, y, user_data):
 
   # calculate the right-hand side
   dE, df, dGamma = calc_rhs(eta1B, eta2B, f, Gamma, user_data)
-  dS, dS1, dS2   = calc_rhs(eta1B, eta2B, S1, S2, user_data)
+#  dS, dS1, dS2   = calc_rhs(eta1B, eta2B, S1, S2, user_data)
 
   # convert derivatives into linear array
   dy   = np.append([dE], np.append(reshape(df, -1), reshape(dGamma, -1)))
 
   # Append spin operators
-  dy = np.append(dy, np.append([dS], np.append(reshape(dS1, -1), reshape(dS2, -1))))
+#  dy = np.append(dy, np.append([dS], np.append(reshape(dS1, -1), reshape(dS2, -1))))
 
   # share data
   user_data["dE"] = dE
@@ -267,7 +267,7 @@ def main():
     "dE":         0.0,                # and main routine
 
 
-    "calc_eta":   eta_white,          # specify the generator (function object)
+    "calc_eta":   eta_imtime,          # specify the generator (function object)
     "calc_rhs":   commutator_2b,         # specify the right-hand side and truncation
 
     "Delta":      None                # energy denominator stored for quadratic White
@@ -284,14 +284,14 @@ def main():
   S1B, S2B = spin_operator(dim1B, user_data)
 
   E, f, Gamma = normal_order(H1B, H2B, user_data) 
-  S, S1, S2 = normal_order(S1B, S2B, user_data)
+#  S, S1, S2 = normal_order(S1B, S2B, user_data)
 
   # reshape Hamiltonian into a linear array (initial ODE vector)
   y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
 
   # Append spin operator information
-  y0   = np.append(y0, np.append([S],np.append(reshape(S1, -1), reshape(S2, -1))))
-  print(y0.shape)
+#  y0   = np.append(y0, np.append([S],np.append(reshape(S1, -1), reshape(S2, -1))))
+#  print(y0.shape)
 
   # integrate flow equations 
   solver = ode(derivative_wrapper,jac=None)
@@ -307,11 +307,11 @@ def main():
   GammaList = []
   fullSet = []
 
-  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s    %-14s    %-14s"%(
+  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
     "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-    "||eta||", "||fod||", "||Gammaod||", "||S1od||", "||S2od||"))
+    "||eta||", "||fod||", "||Gammaod||"))
   # print "-----------------------------------------------------------------------------------------------------------------"
-  print("-" * 200)
+  print("-" * 158)
   
   eta_norm0 = 1.0e10
   failed = False
@@ -325,8 +325,8 @@ def main():
       break
   
     dim2B = dim1B*dim1B
-    E, f, Gamma = get_operator_from_y(ys[:4161], dim1B, dim2B)
-    S, S1, S2 = get_operator_from_y(ys[4161:], dim1B, dim2B)
+    E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
+#    S, S1, S2 = get_operator_from_y(ys[4161:], dim1B, dim2B)
 
     DE2 = calc_mbpt2(f, Gamma, user_data)
     DE3 = calc_mbpt3(f, Gamma, user_data)
@@ -334,11 +334,11 @@ def main():
     norm_fod     = calc_fod_norm(f, user_data)
     norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
 
-    norm_S1od    = calc_fod_norm(S1, user_data)
-    norm_S2od    = calc_Gammaod_norm(S2, user_data)
+#    norm_S1od    = calc_fod_norm(S1, user_data)
+#    norm_S2od    = calc_Gammaod_norm(S2, user_data)
 
-    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f    %14.8f   %14.8f"%(
-      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod, norm_S1od, norm_S2od))
+    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))#, norm_S1od, norm_S2od))
     if abs(DE2/E) < 1e-6: break # 1e-9 before
     sList.append(solver.t)
     EList.append(E)
@@ -373,8 +373,8 @@ def main():
     "Gammaod":     GammaList
   })
   
-  output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1.csv')
-  step_output.to_csv(f'imsrg-white_d{delta}_g{g}_b{b}_N4_ev1_fullflow.csv')
+  output.to_csv(f'imsrg-imtime_d{delta}_g{g}_b{b}_N4_ev1.csv')
+  step_output.to_csv(f'imsrg-imtime_d{delta}_g{g}_b{b}_N4_ev1_fullflow.csv')
 
 #  with open('allHs.pkl', 'wb') as fp:
 #      pickle.dump(fullSet, fp)

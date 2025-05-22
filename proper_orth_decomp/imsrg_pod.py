@@ -302,7 +302,7 @@ def main():
   #H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
 
   # set up initial Spin operator
-  H1B, H2B = pairing_hamiltonian(dim1B, user_data)
+  H1B, H2B = pairing_hamiltonian(delta, g, b, user_data)
 
   E, f, Gamma = normal_order(H1B, H2B, user_data) 
 
@@ -358,8 +358,8 @@ def main():
   
   elif model == "OpInf":
     # Load saved model
-    modelPath = f"OpInf_white_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/"
-    basis = opinf.basis.PODBasis.load(ROMPath+modelPath+"basis_spin.h5")
+    modelPath = f"OpInf_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/"
+    basis = opinf.basis.PODBasis.load(ROMPath+modelPath+"basis.h5")
     Ur = opinf.models.ContinuousModel.load(ROMPath+modelPath+"model.h5")
     # construct rhs function using the OpInf form
     solver = ode(oi_derivative, jac=None)
@@ -377,15 +377,24 @@ def main():
     solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
     solver.set_f_params(Ur, [g,b])
     solver.set_initial_value(basis.compress(y0), 0.)
+
+  elif model == "OpInf_stream":
+    modelPath = f"OpInf_Streaming_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4/"
+    basis = opinf.basis.LinearBasis.load(ROMPath+modelPath+"basis.h5")
+    Ur = opinf.models.ContinuousModel.load(ROMPath+modelPath+"model.h5")
+    # construct rhs function using the OpInf form
+    solver = ode(oi_derivative, jac=None)
+    solver.set_integrator('vode', method='bdf', order=5, nsteps=1000)
+    solver.set_f_params(Ur)
+    solver.set_initial_value(basis.compress(y0), 0.)
   else:
     print("Model not recognized. Please check documentation for approved models.")
 
   user_data["Ur"] = Ur
 
   print(f"Run using {model} ROM")
-  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
-    "s", "S^2" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-    "||eta||", "||S1od||", "||S2od||"))
+  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
+    "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", "||H1od||", "||H2od||"))
   # print "-----------------------------------------------------------------------------------------------------------------"
   print("-" * 148)
   
@@ -407,9 +416,10 @@ def main():
     elif model == "SINDy":
       xs = reducer @ ys
       E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
-    elif model == "OpInf" or model == "OpInf_param":
+    elif model == "OpInf" or model == "OpInf_param" or model == "OpInf_stream":
       xs = basis.decompress(ys)
       E, f, Gamma = get_operator_from_y(xs, dim1B, dim2B)
+    
 
 #    fullSet.append(xs)
 
@@ -419,8 +429,8 @@ def main():
     norm_fod     = calc_fod_norm(f, user_data)
     norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
 
-    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
-      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
+    print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], norm_fod, norm_Gammaod))
     if abs(DE2/E) < 1e-6: break # 1e-9 before
 
     sList.append(solver.t)

@@ -175,8 +175,8 @@ def derivative_wrapper(t, y, user_data):
   calc_rhs  = user_data["calc_rhs"]
 
   # extract operator pieces from solution vector
-  E, f, Gamma = get_operator_from_y(y[:4161], dim1B, dim2B)
-  S, S1, S2 = get_operator_from_y(y[4161:], dim1B, dim2B)
+  E, f, Gamma = get_operator_from_y(y, dim1B, dim2B)
+#  S, S1, S2 = get_operator_from_y(y[4161:], dim1B, dim2B)
 
 
   # calculate the generator
@@ -184,13 +184,13 @@ def derivative_wrapper(t, y, user_data):
 
   # calculate the right-hand side
   dE, df, dGamma = calc_rhs(eta1B, eta2B, f, Gamma, user_data)
-  dS, dS1, dS2   = calc_rhs(eta1B, eta2B, S1, S2, user_data)
+#  dS, dS1, dS2   = calc_rhs(eta1B, eta2B, S1, S2, user_data)
 
   # convert derivatives into linear array
   dy   = np.append([dE], np.append(reshape(df, -1), reshape(dGamma, -1)))
 
   # Append spin operators
-  dy = np.append(dy, np.append([dS], np.append(reshape(dS1, -1), reshape(dS2, -1))))
+#  dy = np.append(dy, np.append([dS], np.append(reshape(dS1, -1), reshape(dS2, -1))))
 
   # share data
   user_data["dE"] = dE
@@ -205,7 +205,7 @@ def make_design(y0, sfinal, ds, user_data):
   # Generates list of Hamiltonians for early times to construct POD
   dim1B = user_data["dim1B"]
   print("Making design matrix:")
-  ys_list = [y0[4161:]]
+  ys_list = [y0]
   dys_list = []
     # integrate flow equations 
   solver = ode(derivative_wrapper,jac=None)
@@ -213,14 +213,14 @@ def make_design(y0, sfinal, ds, user_data):
   solver.set_f_params(user_data)
   solver.set_initial_value(y0, 0.)
   if user_data["model"] != "Galerkin":
-    dys_list.append(solver.f(solver.t, solver.y, user_data)[4161:])
+    dys_list.append(solver.f(solver.t, solver.y, user_data))
 
   print("Constructing list of snapshots")
-  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s    %-14s    %-14s"%(
+  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s   %-14s"%(
     "s", "E" , "DE(2)", "DE(3)", "E+DE", "dE/ds", 
-    "||eta||", "||fod||", "||Gammaod||", "||S1od||", "||S2od||"))
+    "||eta||", "||fod||", "||Gammaod||"))
   # print "-----------------------------------------------------------------------------------------------------------------"
-  print("-" * 200)
+  print("-" * 148)
   
   eta_norm0 = 1.0e10
   failed = False
@@ -233,8 +233,8 @@ def make_design(y0, sfinal, ds, user_data):
           break
   
       dim2B = dim1B*dim1B
-      E, f, Gamma = get_operator_from_y(ys[:4161], dim1B, dim2B)
-      S, S1, S2 = get_operator_from_y(ys[4161:], dim1B, dim2B)
+      E, f, Gamma = get_operator_from_y(ys, dim1B, dim2B)
+#      S, S1, S2 = get_operator_from_y(ys[4161:], dim1B, dim2B)
 
       DE2 = calc_mbpt2(f, Gamma, user_data)
       DE3 = calc_mbpt3(f, Gamma, user_data)
@@ -242,18 +242,18 @@ def make_design(y0, sfinal, ds, user_data):
       norm_fod     = calc_fod_norm(f, user_data)
       norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
 
-      norm_S1od    = calc_fod_norm(S1, user_data)
-      norm_S2od    = calc_Gammaod_norm(S2, user_data)
+#      norm_S1od    = calc_fod_norm(S1, user_data)
+#      norm_S2od    = calc_Gammaod_norm(S2, user_data)
 
-      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f    %14.8f   %14.8f"%(
-      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod, norm_S1od, norm_S2od))
+      print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f"%(
+      solver.t, E , DE2, DE3, E+DE2+DE3, user_data["dE"], user_data["eta_norm"], norm_fod, norm_Gammaod))
       if abs(DE2/E) < 1e-6: break # 1e-9 before
 
       eta_norm0 = user_data["eta_norm"]
 
-      ys_list.append(ys[4161:])
+      ys_list.append(ys)
       if user_data["model"] != "Galerkin":
-          dys_list.append(solver.f(solver.t+ds, ys, user_data)[4161:])
+          dys_list.append(solver.f(solver.t+ds, ys, user_data))
 
   return ys_list, dys_list
 
@@ -296,14 +296,13 @@ def OpInf_model(ys_list, dys_list, params):
   Xdot = np.vstack(dys_list).transpose()
 
   # Use OpInf for calculations - construct basis (similar to Galerkin projection)
-  basis = opinf.basis.PODBasis(num_vectors=6)
+  basis = opinf.basis.PODBasis(svdval_threshold=1e-10)
   basis.fit(X)
   r = basis.shape[1]
 
   # Fit X, Xdot to quadratic order
   X_      = basis.compress(X)
   Xdot_   = basis.compress(Xdot)
-  params_ = np.tile(params, (r,1))
   model = opinf.models.ContinuousModel(
       operators = "cAH",
       solver=opinf.lstsq.L2Solver(regularizer=1e-8)
@@ -405,12 +404,12 @@ def main():
   E, f, Gamma = normal_order(H1B, H2B, user_data) 
 
   # set up spin operator
-  S1B, S2B = spin_operator(dim1B, user_data)
-  S, S1, S2 = normal_order(S1B, S2B, user_data)
+#  S1B, S2B = spin_operator(dim1B, user_data)
+#  S, S1, S2 = normal_order(S1B, S2B, user_data)
 
   # reshape Hamiltonian into a linear array (initial ODE vector)
   y0   = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
-  y0   = np.append(y0, np.append([S],np.append(reshape(S1, -1), reshape(S2, -1))))
+#  y0   = np.append(y0, np.append([S],np.append(reshape(S1, -1), reshape(S2, -1))))
 
   # Get number of time steps to iterate over
   ds_pod = sPod/full_rank
@@ -448,10 +447,10 @@ def main():
       pickle.dump(Ur, f)
     np.savetxt(sPath+"reducer.txt", reduced)
   elif model == "OpInf":
-    oiPath = outpath+f"{model}_white_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4"
-    #os.mkdir(oiPath)
-    basis.save(oiPath+"/basis_spin.h5")
-    #mod.save(oiPath+"/model.h5")
+    oiPath = outpath+f"{model}_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4"
+    os.mkdir(oiPath)
+    basis.save(oiPath+"/basis.h5")
+    mod.save(oiPath+"/model.h5")
   
 #    solver.integrate(solver.t + ds)
 

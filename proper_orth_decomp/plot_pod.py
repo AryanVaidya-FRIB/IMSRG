@@ -64,17 +64,17 @@ def main():
 
     # Files to pull
     dPath      = "/mnt/c/Users/aryan/Documents/MSU_FRIB/IMSRG/proper_orth_decomp/"
-    filePath   = dPath + f"quadratic_white/"
+    filePath   = dPath + f"streaming_results/"
     outPath    = dPath + "plots/"
-    fileString_g = f"imsrg-white_d{delta}_g{g}_b{b}_N4_"
+    fileString_g = f"imsrg-imtime_d{delta}_g{g}_b{b}_N4_"
 #    fileString_g = f"imsrg-Galerkin_d{delta}_g{g}_b{b}_N4_"
-    fileString = f"imsrg-OpInf_d{delta}_g{g}_b{b}_N4_"
+    fileString = f"imsrg-OpInf_stream_d{delta}_g{g}_b{b}_N4_"
 #    fileString_s = f"imsrg-OpInf_quad_d{delta}_g{g}_b{b}_N4_"
     
     # List of each benchmark
-    flows = ["ev1", "pod_rank6"]
-    labels = ["Full Model", "OpInf Rank 6"]
-    colorList = ['C0', 'C1']
+    flows = ["ev1", "pod_rank10"]
+    labels = ["Full Model", "OpInf I-SVD Rank 10"]
+    colorList = ['C0', 'C1', 'C2']
     indexList = range(len(flows))
 
     dataList = []
@@ -92,13 +92,13 @@ def main():
     dataList.append(pd.read_csv(filePath+fileString_g+flows[0]+"_fullflow.csv", index_col=0))
 
     # Plot energy vs. s
-    plot_flow(1, indexList, dataList, colorList, labels, "GS Energy", f"GS Energy vs. Time - b={b}, POD s={podS}", outPath+f"GSEnergy_b{b}_s{podS}_quad_white.jpg")
+    plot_flow(1, indexList, dataList, colorList, labels, "GS Energy", f"GS Energy vs. Time - b={b}, POD s={podS}", outPath+f"GSEnergy_b{b}_s{podS}_streaming.jpg")
 
     # Plot GammaOD vs. s
-    plot_flow(2, indexList, dataList, colorList, labels, "Gamma OD", f"GammaOD vs. Time - b={b}, POD s={podS}", outPath+f"GammaOD_b{b}_s{podS}_quad_white.jpg")
+    plot_flow(2, indexList, dataList, colorList, labels, "Gamma OD", f"GammaOD vs. Time - b={b}, POD s={podS}", outPath+f"GammaOD_b{b}_s{podS}_streaming.jpg")
 
     # Plot difference in original vs. final energy for each rank
-    plot_difference(indexList, dataList, colorList, labels, "Energy Difference", f"Energy Difference vs. Time - b={b}", outPath+f"Ediff_b{b}_s{podS}_quad_white.jpg")
+    plot_difference(indexList, dataList, colorList, labels, "Energy Difference", f"Energy Difference vs. Time - b={b}", outPath+f"Ediff_b{b}_s{podS}_streaming.jpg")
 
 #------------------------------------------------------------------------------
 # make executable
