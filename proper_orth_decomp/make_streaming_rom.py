@@ -169,10 +169,10 @@ def derivative_wrapper(t, y, user_data):
 #------------------------------------------------------------------------------
 # Streaming operations
 #------------------------------------------------------------------------------
-def incremental_svd(ys, rank_data, tol=1e-15):
+def incremental_svd(ys, rank_data, tol=1e-10, tol_reorth=1e-8):
   U      = rank_data["U"]
   S      = rank_data["S"]
-  Vh     = rank_data["V"].T
+  Vh     = rank_data["Vh"]
   r      = rank_data["r"]
   ys     = np.array(ys).reshape(-1,1)
   W      = np.identity(ys.shape[0])
@@ -206,7 +206,7 @@ def incremental_svd(ys, rank_data, tol=1e-15):
     Vh = np.vstack((np.hstack((Vh, np.zeros((l, 1)))),
                 np.hstack((np.zeros((1, k)), np.eye(1))))) @ Vhy
       
-  if np.abs(U[:, -1].T @ W @ U[:, 0]) > tol:
+  if np.abs(U[:, -1].T @ W @ U[:, 0]) > tol_reorth:
     k = U.shape[1]
     for i in range(k):
       a = U[:, i]
@@ -217,8 +217,8 @@ def incremental_svd(ys, rank_data, tol=1e-15):
 
   rank_data["U"] = U
   rank_data["S"] = S
-  rank_data["V"] = Vh.T
-  print(U.shape)
+  rank_data["Vh"] = Vh
+  print(Vh.shape)
 
   return rank_data
 
@@ -299,7 +299,7 @@ def main():
   # Number of particles
   particles   = 4
   # Length of each POD flow
-  sPod        = 1.0
+  sPod        = 2.0
   flow_length = 100
 
   # IO commands
@@ -407,7 +407,7 @@ def main():
 
     "U":          (y0 / norm).reshape(-1,1),           # U in the SVD
     "S":          np.array([[norm]]).reshape(-1,1),    # S in the SVD 
-    "V":          np.array([[1.0]]).reshape(-1,1),     # V in the SVD
+    "Vh":         np.array([[1.0]]).reshape(-1,1),     # V in the SVD
     "Ur":         0,                                   # Galerkin projection basis
 
     "n":          len(y0),                             # Full space dimension
@@ -485,16 +485,17 @@ def main():
   # Make ROM matrix
   print(f"Constructing ROM using {model} model type.")
   X_ = np.vstack(yList).T
-  Xdot_ = np.vstack(dyList).T
-  X_approx = rank_data["U"] @ rank_data["S"] @ rank_data["V"].T
+#  Xdot_ = np.vstack(dyList).T
+  print(rank_data["U"].shape)
+  print(rank_data["S"].shape)
+  print(rank_data["Vh"].shape)
+  X_approx = rank_data["U"] @ rank_data["S"] @ rank_data["Vh"].T
   error = np.linalg.norm(X_-X_approx)/np.linalg.norm(X_)
   print("Reconstruction Error: ", error)
   U, _, _ = np.linalg.svd(X_)
+  r = np.sum(np.diag(rank_data["S"]) > 1e-10)
   Ur = U[:,:6]
   Ur_approx = rank_data["U"][:,:6]
-  basis = opinf.basis.PODBasis(num_vectors = 6).fit(X_).entries
-  error = np.linalg.norm(Ur @ Ur.T-basis @ basis.T)/np.linalg.norm(Ur @ Ur.T)
-  print("OpInf low order error:", error)
   error = np.linalg.norm(Ur @ Ur.T-Ur_approx @ Ur_approx.T)/np.linalg.norm(Ur @ Ur.T)
   print("Low order incremental error: ", error)
 
@@ -503,14 +504,14 @@ def main():
     operators = "cAH",
     solver=opinf.lstsq.L2Solver(regularizer=1e-8)
   ).fit(states = X_, ddts = Xdot_)
-  
+  """
   # Get memory use from making POD
   total_time = time.perf_counter()-time_start
   pod_memkb_current, pod_memkb_peak = tracemalloc.get_traced_memory()
   pod_memkb_peak = pod_memkb_peak/1024.
   tracemalloc.stop()
-  
   print(f"RAM Use: {pod_memkb_peak} kb\nTime Spent: {total_time} s")
+  """
   oiPath = outpath+f"OpInf_Streaming_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4"
   os.mkdir(oiPath)
   basis.save(oiPath+"/basis.h5")

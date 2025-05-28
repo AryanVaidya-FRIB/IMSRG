@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 def incremental_svd(ys, rank_data, tol=1e-15):
     U      = rank_data["U"]
@@ -79,6 +80,7 @@ def updateISVD(Q, S, R, u_l, W, tol):
 
     k = np.shape(S)[0] if np.shape(S) else 1
     Y = np.vstack((np.hstack((S, d)), np.hstack((np.zeros((1, k)), p))))
+    
     Qy, Sy, Ry = np.linalg.svd(Y, full_matrices=True, compute_uv=True)
     Sy = np.diag(Sy)
 
@@ -93,6 +95,7 @@ def updateISVD(Q, S, R, u_l, W, tol):
         S = Sy
         R = np.vstack((np.hstack((R, np.zeros((l, 1)))),
                    np.hstack((np.zeros((1, k)), np.eye(1))))) @ Ry
+
 
     return Q, S, R
 
@@ -116,8 +119,10 @@ def iSVD(U, W, tol=1e-15):
     for i in range(1, n):
         u_l = U[:, i].reshape((m, 1))
         Q, S, R = updateISVD(Q, S, R, u_l, W, tol)
-        print(Q.shape)
+        print(R.shape)
+        time_start = time.perf_counter()
         Q = modified_gram_schmidt(Q, W, tol)
+        print("Step Time: ",time.perf_counter()-time_start," sec")
     return Q, S, R
 
 def main():
