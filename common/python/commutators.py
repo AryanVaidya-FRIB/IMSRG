@@ -199,6 +199,8 @@ def BCH(OperatorA_1B, OperatorA_2B, OperatorB_1B, OperatorB_2B, user_data):
       if abs(check) < 1e-5:
         term_is_big = False
 
+    """
+
     if term_is_big:
       # 2nd order terms
       _, comm1B_A, comm2B_A = commutator_2b(OperatorA_1B, OperatorA_2B, comm1B, comm2B, user_data) #[X,[X,Y]]
@@ -251,6 +253,7 @@ def BCH(OperatorA_1B, OperatorA_2B, OperatorB_1B, OperatorB_2B, user_data):
       output_1B += comm1B_ABAB/240
       output_2B += comm2B_ABAB/240
 
+    """
     return output_1B, output_2B
 
 # -----------------------------------------------------------------------------

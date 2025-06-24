@@ -177,7 +177,6 @@ def incremental_svd(ys, rank_data, tol=1e-10, tol_reorth=1e-8):
   ys     = np.array(ys).reshape(-1,1)
   W      = np.identity(ys.shape[0])
 
-
   d = U.T @ W @ ys
   if not np.shape(d):
     d *= np.eye(1, 1)
@@ -218,7 +217,7 @@ def incremental_svd(ys, rank_data, tol=1e-10, tol_reorth=1e-8):
   rank_data["U"] = U
   rank_data["S"] = S
   rank_data["Vh"] = Vh
-  print(Vh.shape)
+#  print(Vh.shape)
 
   return rank_data
 
@@ -299,7 +298,7 @@ def main():
   # Number of particles
   particles   = 4
   # Length of each POD flow
-  sPod        = 2.0
+  sPod        = 1.0
   flow_length = 100
 
   # IO commands
@@ -365,7 +364,7 @@ def main():
     "eta_norm":   0.0,                # variables for sharing data between ODE solver
     "dE":         0.0,                # and main routine
 
-    "calc_eta":   eta_white,          # specify the generator (function object)
+    "calc_eta":   eta_imtime,         # specify the generator (function object)
     "calc_rhs":   commutator_2b,      # specify the right-hand side and truncation
     "model":      model               # projection model to construct ROM
   }
@@ -398,16 +397,16 @@ def main():
   
   eta_norm0 = 1.0e10
   failed = False
-  norm  = np.linalg.norm(y0)
+  orig  = y0.T @ np.identity(y0.shape[0]) @ y0
 
   # Dictionary of stored rank information
   rank_data = {
     "full rank":  flow_length,                        # Total number of snapshots to calculate
     "r":          0,                                  # Maximum projected rank
 
-    "U":          (y0 / norm).reshape(-1,1),           # U in the SVD
-    "S":          np.array([[norm]]).reshape(-1,1),    # S in the SVD 
-    "Vh":         np.array([[1.0]]).reshape(-1,1),     # V in the SVD
+    "U":          (y0/orig).reshape(-1,1),             # U in the SVD
+    "S":          orig.reshape(-1,1),                                # S in the SVD 
+    "Vh":         np.eye(1, 1),                        # V in the SVD
     "Ur":         0,                                   # Galerkin projection basis
 
     "n":          len(y0),                             # Full space dimension
@@ -421,25 +420,26 @@ def main():
 
   have_init = False
 
-  yList = [y0]
-  dyList = []
+#  yList = [y0]
+#  dyList = []
 
   qList  = []
   dqList = []
+  tol_reorth = 1e-8
 
   while solver.successful() and solver.t < sPod:
       ys  = solver.integrate(solver.t+ds_pod)
       dys = solver.f(solver.t+ds_pod, ys, user_data)   
       if solver.t < sPod/2:
-        rank_data = incremental_svd(ys, rank_data)
-        yList.append(ys)
-        dyList.append(dys)
+        rank_data = incremental_svd(ys, rank_data, tol_reorth=tol_reorth)
+#        yList.append(ys)
+#        dyList.append(dys)
       
 #      if solver.t > sPod/2 and not have_init:
 #        rank_data, have_init = initialize_RLS(rank_data)
       if solver.t > sPod/2 and not have_init:
-        break
-        r = 6
+        r = np.sum(np.diag(rank_data["S"]) > tol_reorth)
+        print("Will constructed reduced order model with rank", r)
         rank_data["r"] = r
         rank_data["Ur"] = rank_data["U"][:,:r]
         have_init = True
@@ -472,8 +472,9 @@ def main():
   r = rank_data["r"]
   Ur = rank_data["Ur"]
   w = rank_data["w"]
+  
+  basis = opinf.basis.LinearBasis(Ur, check_orthogonality=True)
   """
-  basis = opinf.basis.LinearBasis(Ur)
   model = opinf.models.ContinuousModel(
     operators = [
       opinf.operators.ConstantOperator(w[:,0]),
@@ -481,42 +482,44 @@ def main():
       opinf.operators.QuadraticOperator(w[:,1+r:])
     ]
   )
-  """  
+  """
   # Make ROM matrix
   print(f"Constructing ROM using {model} model type.")
-  X_ = np.vstack(yList).T
-#  Xdot_ = np.vstack(dyList).T
+  X_ = np.vstack(qList).T
+  Xdot_ = np.vstack(dqList).T
   print(rank_data["U"].shape)
   print(rank_data["S"].shape)
   print(rank_data["Vh"].shape)
+  """
   X_approx = rank_data["U"] @ rank_data["S"] @ rank_data["Vh"].T
   error = np.linalg.norm(X_-X_approx)/np.linalg.norm(X_)
   print("Reconstruction Error: ", error)
   U, _, _ = np.linalg.svd(X_)
-  r = np.sum(np.diag(rank_data["S"]) > 1e-10)
+  r = np.sum(np.diag(rank_data["S"]) > 1e-8)
   Ur = U[:,:6]
-  Ur_approx = rank_data["U"][:,:6]
+  Ur_approx = rank_data["U"][:,:r]
   error = np.linalg.norm(Ur @ Ur.T-Ur_approx @ Ur_approx.T)/np.linalg.norm(Ur @ Ur.T)
   print("Low order incremental error: ", error)
-
+  print("Low order rank: ",r)
   """
+
   model = opinf.models.ContinuousModel(
     operators = "cAH",
     solver=opinf.lstsq.L2Solver(regularizer=1e-8)
   ).fit(states = X_, ddts = Xdot_)
-  """
+
   # Get memory use from making POD
   total_time = time.perf_counter()-time_start
   pod_memkb_current, pod_memkb_peak = tracemalloc.get_traced_memory()
   pod_memkb_peak = pod_memkb_peak/1024.
   tracemalloc.stop()
   print(f"RAM Use: {pod_memkb_peak} kb\nTime Spent: {total_time} s")
-  """
+  
   oiPath = outpath+f"OpInf_Streaming_d{delta}_g{g}_b{b}_s{sPod}_rank{r}_N4"
   os.mkdir(oiPath)
   basis.save(oiPath+"/basis.h5")
   model.save(oiPath+"/model.h5")
-  """
+  
 #    solver.integrate(solver.t + ds)
 
 #------------------------------------------------------------------------------

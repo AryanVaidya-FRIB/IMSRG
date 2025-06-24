@@ -267,7 +267,7 @@ def main():
     "dE":         0.0,                # and main routine
 
 
-    "calc_eta":   eta_imtime,          # specify the generator (function object)
+    "calc_eta":   eta_white_mp,          # specify the generator (function object)
     "calc_rhs":   commutator_2b,         # specify the right-hand side and truncation
 
     "Delta":      None                # energy denominator stored for quadratic White

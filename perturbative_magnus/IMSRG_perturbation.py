@@ -23,7 +23,7 @@ from numpy import array, dot, diag, reshape, pi
 from scipy.linalg import eigvalsh, expm
 from scipy.special import bernoulli
 from commutators import commutator_2b, similarity_transform, BCH
-from generators import eta_white
+from generators import eta_white_mp
 from basis import *
 from classification import *
 
@@ -160,7 +160,7 @@ def Delta(f, Gamma, user_data):
   denom_1b = np.zeros_like(f)
   for a in particles:
     for i in holes:
-      denom_1b[a,i] = f[a,a] - f[i,i] + Gamma[idx2B[(a,i)],idx2B[(a,i)]] 
+      denom_1b[a,i] = f[a,a] - f[i,i]
 
   denom_2b = np.zeros_like(Gamma)
   for a in particles:
@@ -168,13 +168,7 @@ def Delta(f, Gamma, user_data):
       for i in holes:
         for j in holes:
           denom_2b[idx2B[(a,b)], idx2B[(i,j)]] = ( 
-            f[a,a] + f[b,b] - f[i,i] - f[j,j]  
-            + Gamma[idx2B[(a,b)],idx2B[(a,b)]] 
-            + Gamma[idx2B[(i,j)],idx2B[(i,j)]]
-            - Gamma[idx2B[(a,i)],idx2B[(a,i)]] 
-            - Gamma[idx2B[(a,j)],idx2B[(a,j)]] 
-            - Gamma[idx2B[(b,i)],idx2B[(b,i)]] 
-            - Gamma[idx2B[(b,j)],idx2B[(b,j)]] 
+            f[a,a] + f[b,b] - f[i,i] - f[j,j]
           )
 
   return denom_1b, denom_2b
@@ -194,7 +188,7 @@ def get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data):
   f1 = f-np.diag(np.diag(f))
 
   # Calculate White's generator - use f, or otherwise diagonal will be zero
-  eta1B, eta2B = eta_white(f, Gamma, user_data)
+  eta1B, eta2B = eta_white_mp(f, Gamma, user_data)
 
   # Separate Gamma into diagonal and off-diagonal elements and construct a ratio array
   #print("Diagonal for 2B Hamiltonian")
@@ -268,7 +262,7 @@ def get_simpler_Omega2(f, Gamma, delta1B, delta2B, user_data):
   f1 = f-np.diag(np.diag(f))
 
   # Calculate White's generator - use f, or otherwise diagonal will be zero
-  eta1B, eta2B = eta_white(f, Gamma, user_data)
+  eta1B, eta2B = eta_white_mp(f, Gamma, user_data)
 
   # Separate Gamma into diagonal and off-diagonal elements and construct a ratio array
   #print("Diagonal for 2B Hamiltonian")
@@ -308,6 +302,8 @@ def get_simpler_Omega2(f, Gamma, delta1B, delta2B, user_data):
           Omega2b_2[idx2B[(a,b)], idx2B[(i,j)]] = val
           Omega2b_2[idx2B[(i,j)], idx2B[(a,b)]] = -val
 
+  od_norm = np.linalg.norm(container_1b, ord="fro") + np.linalg.norm(container_2b, ord="fro")
+  print(f"2nd order od term has norm {od_norm}")
   return Omega1b_2, Omega2b_2
 
 def get_operator_from_y(y, dim1B, dim2B):
@@ -332,7 +328,7 @@ def main():
   # grab delta and g from the command line
   delta      = 1.0 #float(argv[1])
   g          = float(argv[1])
-  b          = 0.5 #float(argv[3])
+  b          = 0. #float(argv[3])
 
   # Initialize starting setup
   use_second_order = False
@@ -375,26 +371,26 @@ def main():
   # store shared data in a dictionary, so we can avoid passing the basis
   # lookups etc. as separate parameters all the time
   user_data  = {
-    "dim1B":      dim1B, 
-    "holes":      holes,
-    "particles":  particles,
-    "bas1B":      bas1B,
-    "bas2B":      bas2B,
-    "basph2B":    basph2B,
-    "idx2B":      idx2B,
-    "idxph2B":    idxph2B,
-    "occ1B":      occ1B,
-    "occA_2B":    occA_2B,
-    "occB_2B":    occB_2B,
-    "occC_2B":    occC_2B,
-    "occphA_2B":  occphA_2B,
-    "dE"       :  1e10,
-    "omegaNorm":  1e10,
-    "ref_energy": 0,
+  "dim1B":      dim1B, 
+  "holes":      holes,
+  "particles":  particles,
+  "bas1B":      bas1B,
+  "bas2B":      bas2B,
+  "basph2B":    basph2B,
+  "idx2B":      idx2B,
+  "idxph2B":    idxph2B,
+  "occ1B":      occ1B,
+  "occA_2B":    occA_2B,
+  "occB_2B":    occB_2B,
+  "occC_2B":    occC_2B,
+  "occphA_2B":  occphA_2B,
+  "dE"       :  1e10,
+  "omegaNorm":  1e10,
+  "ref_energy": 0,
 
-    "order":      20,                 # variables for magnus series expansions
-    "bernoulli":   0,                 # and lists of Bernoulli numbers
-    "hamiltonian": 0,                 # stored starting Hamiltonian
+  "order":      20,                 # variables for magnus series expansions
+  "bernoulli":   0,                 # and lists of Bernoulli numbers
+  "hamiltonian": 0,                 # stored starting Hamiltonian
   }
 
   # initialize Bernoulli numbers for magnus expansion
@@ -441,7 +437,7 @@ def main():
     FinalOmega2B = np.zeros_like(Gamma)
   for s in range(1, max_steps):
     # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = eta(0)
-    Omega1B, Omega2B = eta_white(f, Gamma, user_data)
+    Omega1B, Omega2B = eta_white_mp(f, Gamma, user_data)
     fullOmega1B = Omega1B
     fullOmega2B = Omega2B
     OmegaNorm1  = np.linalg.norm(Omega1B,ord='fro')+np.linalg.norm(Omega2B,ord='fro')
