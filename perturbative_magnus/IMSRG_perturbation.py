@@ -302,9 +302,67 @@ def get_simpler_Omega2(f, Gamma, delta1B, delta2B, user_data):
           Omega2b_2[idx2B[(a,b)], idx2B[(i,j)]] = val
           Omega2b_2[idx2B[(i,j)], idx2B[(a,b)]] = -val
 
-  od_norm = np.linalg.norm(container_1b, ord="fro") + np.linalg.norm(container_2b, ord="fro")
-  print(f"2nd order od term has norm {od_norm}")
+  #od_norm = np.linalg.norm(Omega1b_2, ord="fro") + np.linalg.norm(Omega2b_2, ord="fro")
+  #print(f"2nd order term has norm {od_norm}")
   return Omega1b_2, Omega2b_2
+
+def get_Omega3(f, Gamma, delta1B, delta2B, Omega1B_1, Omega2B_1, Omega1B_2, Omega2B_2, user_data):
+  # Only use for HF reference states (b=0)
+  bas1B     = user_data["bas1B"]
+  bas2B     = user_data["bas2B"]
+  idx2B     = user_data["idx2B"]
+  particles = user_data["particles"]
+  holes     = user_data["holes"]
+
+  # Make empty containers for contributions
+  Omega1B_3 = np.zeros_like(f)
+  Omega2B_3 = np.zeros_like(Gamma)
+
+  # Separate out fod and Gammaod - since this calculation needs HF, fod = 0
+  fd, fod, Gammad, Gammaod = separate_diag(f, Gamma, user_data)
+
+  # Get principal term - 2nd order Born operator - will do all external division at the end
+  _, comm0_1b, comm0_2b = commutator_2b(Omega1B_2, Omega2B_2, fd, Gammad, user_data)
+  _, comm0od_1b, _, comm0od_2b = separate_diag(comm0_1b, comm0_2b, user_data)
+
+  # Get first renorm term
+  _, comm1_1b, comm1_2b = commutator_2b(Omega1B_1, Omega2B_1, fod, Gammaod, user_data)
+  comm1d_1b, _, comm1d_2b, _ = separate_diag(comm1_1b, comm1_2b, user_data)
+  _, comm2_1b, comm2_2b = commutator_2b(Omega1B_1, Omega2B_1, comm1d_1b, comm1d_2b, user_data)
+  _, comm2od_1b, _, comm2od_2b = separate_diag(comm2_1b, comm2_2b, user_data)
+
+  # Divide by energy denominator
+  for a in particles:
+    for i in holes:
+      if abs(delta1B[a,i])<1.0e-10:
+        val = 0.25 * pi * np.sign(comm0od_1b[a,i])*np.sign(delta1B[a,i]) +  pi * np.sign(comm2od_1b[a,i])*np.sign(delta1B[a,i])/12
+      else:
+        val = (comm0od_1b[a,i]+comm2od_1b[a,i]/3)/delta1B[a,i]
+
+      Omega1B_3[a,i] = val
+      Omega1B_3[i,a] = -val
+
+  for a in particles:
+    for b in particles:
+      for i in holes:
+        for j in holes:
+          if abs(delta2B[idx2B[(a,b)], idx2B[(i,j)]])<1.0e-10:
+            val = (0.25 * pi * np.sign(comm0od_2b[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(delta2B[idx2B[(a,b)], idx2B[(i,j)]])+ (pi * np.sign(comm0od_2b[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(delta2B[idx2B[(a,b)], idx2B[(i,j)]]))
+                    + pi * np.sign(comm2od_2b[idx2B[(a,b)], idx2B[(i,j)]]) * np.sign(delta2B[idx2B[(a,b)], idx2B[(i,j)]])/12)
+          else:
+            val = (comm0od_2b[idx2B[(a,b)], idx2B[(i,j)]]+comm2od_2b[idx2B[(a,b)], idx2B[(i,j)]]/3) / delta2B[idx2B[(a,b)], idx2B[(i,j)]]
+
+          Omega2B_3[idx2B[(a,b)], idx2B[(i,j)]] = val
+          Omega2B_3[idx2B[(i,j)], idx2B[(a,b)]] = -val
+
+  # Get second renorm term
+  _, comm3_1b, comm3_2b = commutator_2b(Omega1B_2, Omega2B_2, Omega1B_1, Omega2B_1, user_data)
+  Omega1B_3 += comm3_1b/4
+  Omega2B_3 += comm3_2b/4
+
+  #od_norm = np.linalg.norm(Omega1B_3, ord="fro") + np.linalg.norm(Omega2B_3, ord="fro")
+  #print(f"2nd order term has norm {od_norm}")
+  return Omega1B_3, Omega2B_3  
 
 def get_operator_from_y(y, dim1B, dim2B):
   
@@ -331,7 +389,7 @@ def main():
   b          = 0. #float(argv[3])
 
   # Initialize starting setup
-  use_second_order = False
+  order            = 3
   store_operators  = False
 
   particles  = 4
@@ -420,9 +478,12 @@ def main():
   norm_Gammaod = calc_Gammaod_norm(Gamma, user_data)
   
   user_data["hamiltonian"]  = np.append([E], np.append(reshape(f, -1), reshape(Gamma, -1)))
-
-  print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s  %-14s  %-14s  %-14s"%(
-    "step No", "E" , "DE(2)", "DE(3)", "E+DE", "||Omega1||", "||Omega2||", "||fod||", "||Gammaod||"))
+  if order > 2:
+    print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s  %-14s  %-14s  %-14s"%(
+      "step No", "E" , "DE(2)", "DE(3)", "E+DE", "||Omega1||", "||Omega2||", "||Omega3||", "||Gammaod||"))
+  else:
+    print("%-8s   %-14s   %-14s   %-14s   %-14s   %-14s  %-14s  %-14s  %-14s"%(
+      "step No", "E" , "DE(2)", "DE(3)", "E+DE", "||Omega1||", "||Omega2||", "||fod||", "||Gammaod||"))
   print("-" * 148)
 
   print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f   %14.8f   %14.8f  %14.8f  %14.8f"%(
@@ -435,6 +496,10 @@ def main():
   else:
     FinalOmega1B = np.zeros_like(f)
     FinalOmega2B = np.zeros_like(Gamma)
+
+  OmegaNorm1 = 0
+  OmegaNorm2 = 0
+  OmegaNorm3 = 0
   for s in range(1, max_steps):
     # Construct Delta and Omega for each step using Omega = Hod(0)/Delta(0) = eta(0)
     Omega1B, Omega2B = eta_white_mp(f, Gamma, user_data)
@@ -442,14 +507,20 @@ def main():
     fullOmega2B = Omega2B
     OmegaNorm1  = np.linalg.norm(Omega1B,ord='fro')+np.linalg.norm(Omega2B,ord='fro')
     OmegaNorm   = OmegaNorm1
-    if use_second_order:
+    if order > 1:
       # Construct the second order Omega - check the formula
       delta1B, delta2B = Delta(f, Gamma, user_data)
-      Omega1B_2, Omega2B_2 = get_second_order_Omega(f, Gamma, delta1B, delta2B, user_data)
+      Omega1B_2, Omega2B_2 = get_simpler_Omega2(f, Gamma, delta1B, delta2B, user_data)
       fullOmega1B += Omega1B_2
       fullOmega2B += Omega2B_2
       OmegaNorm2  = np.linalg.norm(Omega1B_2,ord='fro')+np.linalg.norm(Omega2B_2,ord='fro')
       OmegaNorm   += OmegaNorm2
+    if order > 2:
+      Omega1B_3, Omega2B_3 = get_Omega3(f, Gamma, delta1B, delta2B, Omega1B, Omega2B, Omega1B_2, Omega2B_2, user_data)
+      fullOmega1B += Omega1B_3
+      fullOmega2B += Omega2B_3
+      OmegaNorm3  = np.linalg.norm(Omega1B_3,ord='fro')+np.linalg.norm(Omega2B_3,ord='fro')
+      OmegaNorm   += OmegaNorm3
     
     if store_operators:
       Omegas1B.append(fullOmega1B)
@@ -476,12 +547,12 @@ def main():
     if abs(user_data["dE"]) < 1e-6: break
 
     # Print new metrics
-    if use_second_order:
+    if order > 2:
       print("%8.5f %14.8f   %14.8f   %14.8f   %14.8f %14.8f  %14.8f   %14.8f   %14.8f"%(
-        s, E , DE2, DE3, E+DE2+DE3, OmegaNorm1, OmegaNorm2, norm_fod, norm_Gammaod))
+        s, E , DE2, DE3, E+DE2+DE3, OmegaNorm1, OmegaNorm2, OmegaNorm3, norm_Gammaod))
     else:
       print("%8.5f %14.8f   %14.8f   %14.8f %14.8f  %14.8f %14.8f  %14.8f   %14.8f"%(
-        s, E , DE2, DE3, E+DE2+DE3, OmegaNorm, 0, norm_fod, norm_Gammaod))
+        s, E , DE2, DE3, E+DE2+DE3, OmegaNorm1, OmegaNorm2, norm_fod, norm_Gammaod))
     # Loop ends here
 
   E_s = E_i
@@ -519,15 +590,12 @@ def main():
     'RAM Usage':   total_RAM
   })
 
-  out_type = ''
-  if use_second_order:
-    out_type += '2'
   if store_operators:
-    out_type += '_Stored'
+    out_type = '_Stored'
   if store_operators == False:
-    out_type += '_BCH'
+    out_type = '_BCH'
   
-  output.to_csv(f'/mnt/home/vaidyaa3/IMSRG/batch_jobs/batch_results/d{delta}_g{g}_b{b}_N4_perturbative{out_type}.csv')
+  output.to_csv(f'/mnt/home/vaidyaa3/IMSRG/batch_jobs/batch_results/d{delta}_g{g}_b{b}_N4_perturbative{order}{out_type}.csv')
 
 
 #------------------------------------------------------------------------------
